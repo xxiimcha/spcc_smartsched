@@ -33,10 +33,26 @@ const DAY_INDEX: Record<string, number> = { Mon: 0, Tue: 1, Wed: 2, Thu: 3, Fri:
 
 function normalizeDays(d: string | string[] | undefined | null): string[] {
   if (!d) return [];
-  if (Array.isArray(d)) return d.map((x) => String(x).trim());
-  return String(d)
-    .split(/[,\s]+/)
-    .map((x) => x.trim())
+  const map: Record<string, string> = {
+    sun: "Sun", sunday: "Sun",
+    mon: "Mon", monday: "Mon",
+    tue: "Tue", tues: "Tue", tuesday: "Tue",
+    wed: "Wed", wednesday: "Wed",
+    thu: "Thu", thur: "Thu", thurs: "Thu", thursday: "Thu",
+    fri: "Fri", friday: "Fri",
+    sat: "Sat", saturday: "Sat",
+    "0": "Sun", "1": "Mon", "2": "Tue", "3": "Wed",
+    "4": "Thu", "5": "Fri", "6": "Sat"
+  };
+
+  const arr = Array.isArray(d)
+    ? d.map(String)
+    : String(d)
+        .replace(/[^\w, ]+/g, ",") // turn separators into commas
+        .split(/[,\s]+/);
+
+  return arr
+    .map((x) => map[x.trim().toLowerCase()] || "")
     .filter(Boolean);
 }
 
@@ -294,13 +310,17 @@ const ProfessorDashboard: React.FC = () => {
         </Card>
       ) : (
         /* ---------------------------- CALENDAR VIEW --------------------------- */
-        <Card>
-          <CardHeader className="flex items-center justify-between">
-            <CardTitle>
-              Week Calendar <span className="text-sm font-normal text-muted-foreground">({titleRange})</span>
+        <Card className="shadow-md border border-muted/30">
+          <CardHeader className="flex items-center justify-between bg-muted/10 rounded-t-lg px-5 py-3 border-b">
+            <CardTitle className="text-lg font-semibold flex items-center gap-2">
+              Week Calendar{" "}
+              <span className="text-sm font-normal text-muted-foreground">
+                ({titleRange})
+              </span>
             </CardTitle>
             <div className="flex items-center gap-2">
               <Button
+                size="sm"
                 variant="outline"
                 onClick={() =>
                   setWeekStart((d) => {
@@ -312,10 +332,11 @@ const ProfessorDashboard: React.FC = () => {
               >
                 <ChevronLeft className="h-4 w-4 mr-1" /> Prev
               </Button>
-              <Button variant="outline" onClick={() => setWeekStart(startOfWeek(new Date(), 1))}>
+              <Button size="sm" variant="outline" onClick={() => setWeekStart(startOfWeek(new Date(), 1))}>
                 Today
               </Button>
               <Button
+                size="sm"
                 variant="outline"
                 onClick={() =>
                   setWeekStart((d) => {
@@ -330,68 +351,113 @@ const ProfessorDashboard: React.FC = () => {
             </div>
           </CardHeader>
 
-          <CardContent>
+          <CardContent className="p-0 overflow-x-auto">
             {resolvingProfId ? (
-              <p className="text-sm text-muted-foreground">Linking your professor profile…</p>
+              <p className="text-sm text-muted-foreground p-4">
+                Linking your professor profile…
+              </p>
             ) : loading ? (
-              <p className="text-sm text-muted-foreground">Loading…</p>
+              <p className="text-sm text-muted-foreground p-4">Loading…</p>
             ) : (
               <div className="w-full overflow-x-auto">
-                <div className="min-w-[900px]">
-                  {/* Header row */}
-                  <div className="grid" style={{ gridTemplateColumns: "80px repeat(7, 1fr)" }}>
-                    <div />
+                <div className="min-w-[950px]">
+                  {/* Header Row */}
+                  <div className="grid bg-muted/10 sticky top-0 z-10" style={{ gridTemplateColumns: "80px repeat(7, 1fr)" }}>
+                    <div className="border-r border-muted/30 bg-background" />
                     {WEEK_ORDER.map((d, i) => (
-                      <div key={d} className="px-2 py-2 text-sm font-medium">
-                        {d}{" "}
-                        <span className="text-muted-foreground">
-                          {dayDates[i].toLocaleDateString(undefined, { month: "short", day: "numeric" })}
-                        </span>
+                      <div
+                        key={d}
+                        className="px-3 py-3 text-sm font-medium border-l border-muted/30 text-center"
+                      >
+                        {d}
+                        <div className="text-xs text-muted-foreground">
+                          {dayDates[i].toLocaleDateString(undefined, {
+                            month: "short",
+                            day: "numeric",
+                          })}
+                        </div>
                       </div>
                     ))}
                   </div>
 
-                  {/* Grid */}
-                  <div className="relative grid border rounded-lg" style={{ gridTemplateColumns: "80px repeat(7, 1fr)" }}>
-                    {/* Time ruler */}
-                    <div className="relative border-r">
-                      {Array.from({ length: hourRows }, (_, i) => MIN_MIN + i * 60).map((m) => (
-                        <div key={m} className="h-16 relative">
-                          <div className="absolute -translate-y-2 top-0 right-2 text-xs text-muted-foreground">
-                            {fmtTime(`${Math.floor(m / 60)}:${String(m % 60).padStart(2, "0")}`)}
+                  {/* Grid Container */}
+                  <div className="relative grid border-t border-muted/30" style={{ gridTemplateColumns: "80px repeat(7, 1fr)" }}>
+                    {/* Time Ruler */}
+                    <div className="sticky left-0 bg-background border-r border-muted/30 z-20">
+                      {Array.from({ length: hourRows }, (_, i) => {
+                        const m = MIN_MIN + i * 60;
+                        return (
+                          <div
+                            key={m}
+                            className={`h-16 relative ${i % 2 === 0 ? "bg-muted/5" : ""}`}
+                          >
+                            <div className="absolute top-1 right-2 text-[11px] text-muted-foreground font-medium">
+                              {fmtTime(`${Math.floor(m / 60)}:${String(m % 60).padStart(2, "0")}`)}
+                            </div>
                           </div>
-                        </div>
-                      ))}
+                        );
+                      })}
                     </div>
 
-                    {/* 7 day columns */}
+                    {/* Day Columns */}
                     {Array.from({ length: 7 }).map((_, col) => (
-                      <div key={col} className="relative border-l">
-                        {/* hour lines */}
+                      <div
+                        key={col}
+                        className="relative border-l border-muted/30 overflow-hidden"
+                      >
+                        {/* Hour Blocks */}
                         {Array.from({ length: hourRows }, (_, i) => (
-                          <div key={i} className="h-16 border-t border-dashed border-muted/40" />
+                          <div
+                            key={i}
+                            className={`h-16 border-t border-dashed border-muted/40 ${
+                              i % 2 === 0 ? "bg-muted/5" : "bg-transparent"
+                            }`}
+                          />
                         ))}
 
-                        {/* events */}
+                        {/* Events */}
                         {weekEvents
                           .filter((e) => e.dayIndex === col)
-                          .map((e) => {
-                            // position & size
-                            const topPx = ((e.startMin - MIN_MIN) / totalMinutes) * 16 * hourRows;
-                            const hPx = Math.max(28, ((e.endMin - e.startMin) / totalMinutes) * 16 * hourRows);
+                          .map((e, i) => {
+                            const topPx =
+                              ((e.startMin - MIN_MIN) / totalMinutes) * 16 * hourRows;
+                            const hPx = Math.max(
+                              40,
+                              ((e.endMin - e.startMin) / totalMinutes) * 16 * hourRows
+                            );
+
+                            const colors = [
+                              "from-blue-400/40 to-blue-500/60",
+                              "from-green-400/40 to-green-500/60",
+                              "from-violet-400/40 to-violet-500/60",
+                              "from-orange-400/40 to-orange-500/60",
+                              "from-pink-400/40 to-pink-500/60",
+                            ];
+                            const bg = colors[i % colors.length];
+
                             return (
                               <div
                                 key={e.key}
-                                className="absolute left-1 right-1 rounded-md bg-primary/10 border border-primary/30 px-2 py-1 text-xs"
+                                className={`absolute left-1 right-1 rounded-lg shadow-sm border border-primary/20 bg-gradient-to-br ${bg} backdrop-blur-sm px-2 py-1 text-xs text-primary-foreground hover:scale-[1.02] hover:shadow-md transition-transform`}
                                 style={{ top: topPx, height: hPx }}
-                                title={`${e.label} • ${e.section ?? ""} ${e.room ? `• Room ${e.room}` : ""}`}
                               >
-                                <div className="font-medium truncate">{e.label}</div>
+                                <div className="font-semibold text-[13px] truncate">
+                                  {e.label}
+                                </div>
                                 <div className="text-[11px] text-muted-foreground truncate">
-                                  {fmtTime(`${Math.floor(e.startMin / 60)}:${String(e.startMin % 60).padStart(2, "0")}`)}
+                                  {fmtTime(
+                                    `${Math.floor(e.startMin / 60)}:${String(
+                                      e.startMin % 60
+                                    ).padStart(2, "0")}`
+                                  )}
                                   {" – "}
-                                  {fmtTime(`${Math.floor(e.endMin / 60)}:${String(e.endMin % 60).padStart(2, "0")}`)}
-                                  {e.section ? ` • ${e.section}` : ""}{e.room ? ` • Rm ${e.room}` : ""}
+                                  {fmtTime(
+                                    `${Math.floor(e.endMin / 60)}:${String(
+                                      e.endMin % 60
+                                    ).padStart(2, "0")}`
+                                  )}
+                                  {e.section ? ` • ${e.section}` : ""}
+                                  {e.room ? ` • Rm ${e.room}` : ""}
                                 </div>
                               </div>
                             );
@@ -404,6 +470,7 @@ const ProfessorDashboard: React.FC = () => {
             )}
           </CardContent>
         </Card>
+
       )}
     </div>
   );
