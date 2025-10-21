@@ -11,6 +11,7 @@ import {
   ChevronsRight,
   FileSpreadsheet,
   FileText,
+  List as ListIcon, // NEW
 } from "lucide-react";
 import { apiService } from "@/services/apiService";
 import {
@@ -41,7 +42,8 @@ type Subject = {
 };
 
 interface Professor {
-  id: string;
+  id: string;             // prof_id
+  user_id?: string;       // NEW: we’ll store this for convenience
   name: string;
   email?: string;
   phone?: string;
@@ -52,6 +54,16 @@ interface Professor {
   subjects?: Subject[];
   subject_ids?: (string | number)[];
 }
+
+type PrefItem = {
+  subj_id: number;
+  proficiency: "beginner" | "intermediate" | "advanced";
+  // optional details if we can fetch them:
+  subj_name?: string;
+  subj_code?: string;
+  grade_level?: string | number;
+  strand?: string;
+};
 
 const PAGE_SIZES = [10, 25, 50];
 const SUBJECT_PAGE_SIZES = [5, 10, 20];
@@ -76,6 +88,15 @@ const ProfessorManagement = () => {
   const [subjectStrandFilter, setSubjectStrandFilter] = useState<Record<string, string>>({});
   const [subjectPageById, setSubjectPageById] = useState<Record<string, number>>({});
   const [subjectPageSizeById, setSubjectPageSizeById] = useState<Record<string, number>>({});
+
+  // NEW: Assign modal state
+  const [assignOpen, setAssignOpen] = useState(false);
+  const [assignFor, setAssignFor] = useState<Professor | null>(null);
+  const [prefLoading, setPrefLoading] = useState(false);
+  const [prefList, setPrefList] = useState<PrefItem[]>([]);
+  const [assignPick, setAssignPick] = useState<Record<number, boolean>>({});
+  const [assignSaving, setAssignSaving] = useState(false);
+
   const { toast } = useToast();
 
   const subjectLoadCount = (p?: Professor | null) =>
@@ -113,55 +134,54 @@ const ProfessorManagement = () => {
   }, []);
 
   const fetchProfessors = async () => {
-  try {
-    setLoading(true);
-    setError(null);
-    const response = await apiService.getProfessors();
-    if (response.success && Array.isArray(response.data)) {
-      const mappedProfessors = response.data.map((prof: any) => {
-        const id = (prof.prof_id ?? prof.id)?.toString?.();
-        const name = String(prof.prof_name ?? prof.name ?? "").trim();
+    try {
+      setLoading(true);
+      setError(null);
+      const response = await apiService.getProfessors();
+      if (response.success && Array.isArray(response.data)) {
+        const mappedProfessors = response.data.map((prof: any) => {
+          const id = (prof.prof_id ?? prof.id)?.toString?.();
+          const name = String(prof.prof_name ?? prof.name ?? "").trim();
 
-        const subjCount = Number(
-          prof.subj_count ??
-          prof.subjectCount ??
-          prof.subject_count ??
-          prof.subjects_count ??
-          (Array.isArray(prof.subjects) ? prof.subjects.length : undefined) ??
-          (Array.isArray(prof.subject_ids) ? prof.subject_ids.length : 0)
-        );
+          const subjCount = Number(
+            prof.subj_count ??
+              prof.subjectCount ??
+              prof.subject_count ??
+              prof.subjects_count ??
+              (Array.isArray(prof.subjects) ? prof.subjects.length : undefined) ??
+              (Array.isArray(prof.subject_ids) ? prof.subject_ids.length : 0)
+          );
 
-        return {
-          id,
-          name,
-          email: prof.prof_email ?? prof.email,
-          phone: prof.prof_phone ?? prof.phone,
-          username: prof.prof_username ?? prof.username,
-          password: prof.prof_password ?? prof.password,
-          subject_ids: prof.subject_ids ?? [],
-          subjectCount: subjCount,
-        } as Professor;
+          return {
+            id,
+            user_id: prof.user_id?.toString?.(), // NEW
+            name,
+            email: prof.prof_email ?? prof.email,
+            phone: prof.prof_phone ?? prof.phone,
+            username: prof.prof_username ?? prof.username,
+            password: prof.prof_password ?? prof.password,
+            subject_ids: prof.subject_ids ?? [],
+            subjectCount: subjCount,
+          } as Professor;
+        });
+
+        setProfessors(mappedProfessors);
+        setSubjectsLoadedIds({});
+        setLoadingSubjectsIds({});
+      } else {
+        setProfessors([]);
+        if (!response.success) throw new Error(response.message || "Failed to fetch professors");
+      }
+    } catch (err) {
+      setError("Failed to load professors. Please try again later.");
+      toast({
+        variant: "destructive",
+        title: "Error",
+        description: err instanceof Error ? err.message : "Could not fetch professors from the server.",
       });
-
-      setProfessors(mappedProfessors);
-
-      // IMPORTANT: invalidate subject caches so Subjects tab re-fetches fresh data
-      setSubjectsLoadedIds({});
-      setLoadingSubjectsIds({});
-    } else {
-      setProfessors([]);
-      if (!response.success) throw new Error(response.message || "Failed to fetch professors");
+    } finally {
+      setLoading(false);
     }
-  } catch (err) {
-    setError("Failed to load professors. Please try again later.");
-    toast({
-      variant: "destructive",
-      title: "Error",
-      description: err instanceof Error ? err.message : "Could not fetch professors from the server.",
-    });
-  } finally {
-    setLoading(false);
-  }
   };
 
   const addProfessor = async (professorData: Omit<Professor, "id">) => {
@@ -247,7 +267,7 @@ const ProfessorManagement = () => {
       const res = await fetch(`https://spcc-scheduler.site/professors.php?id=${prof.id}`, {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ password: temp }), // ONLY the password
+        body: JSON.stringify({ password: temp }),
       });
       const json = await res.json();
       if (json.status === "error") throw new Error(json.message || "Failed to reset password");
@@ -272,7 +292,7 @@ const ProfessorManagement = () => {
     }
   };
 
-
+  // ----- Subjects fetchers (existing) -----
   const fetchSubjectsFromProfessorsAPI = async (professorId: string): Promise<Subject[] | null> => {
     try {
       const res = await fetch(`https://spcc-scheduler.site/professors.php?id=${professorId}`);
@@ -336,18 +356,14 @@ const ProfessorManagement = () => {
       const prof = professors.find((x) => x.id === profId);
       if (
         prof &&
-        (
-          !subjectsLoadedIds[profId] ||
-          !Array.isArray(prof.subjects) ||
-          prof.subjects.length === 0
-        )
+        (!subjectsLoadedIds[profId] || !Array.isArray(prof.subjects) || prof.subjects.length === 0)
       ) {
         await ensureSubjectsFor(prof);
       }
     }
   };
 
-
+  // ---------- Export helpers ----------
   const toFlatRows = (list: Professor[]) => {
     const rows: Array<[string, string, string, string]> = [];
     list.forEach((p) => {
@@ -414,6 +430,116 @@ const ProfessorManagement = () => {
     }
   };
 
+  // ---------- Preferred subjects (NEW) ----------
+  const fetchPreferred = async (prof: Professor): Promise<PrefItem[]> => {
+    // The PHP we added accepts either prof_id or user_id; we’ll pass prof_id.
+    const url = `https://spcc-scheduler.site/professor_subject_preferences.php?prof_id=${prof.id}`;
+    const res = await fetch(url);
+    const json = await res.json();
+    if (json?.status !== "success" || !Array.isArray(json?.data)) return [];
+    // coerce into PrefItem
+    return json.data.map((r: any) => ({
+      subj_id: Number(r.subj_id),
+      proficiency: (String(r.proficiency || "").toLowerCase() as PrefItem["proficiency"]) || "beginner",
+    }));
+  };
+
+  // Try to get subject details by a vector of IDs. If this endpoint doesn’t exist yet,
+  // it will simply skip details and we’ll still show the IDs.
+  const fetchSubjectDetailsByIds = async (ids: number[]) => {
+    if (!ids.length) return {} as Record<number, Partial<PrefItem>>;
+    try {
+      const qs = ids.join(",");
+      const r = await fetch(`https://spcc-scheduler.site/subjects.php?ids=${qs}`);
+      const j = await r.json();
+      if (j?.status === "success" && Array.isArray(j?.data)) {
+        const map: Record<number, Partial<PrefItem>> = {};
+        j.data.forEach((s: any) => {
+          const key = Number(s.subj_id);
+          map[key] = {
+            subj_name: s.subj_name,
+            subj_code: s.subj_code,
+            grade_level: s.grade_level ?? s.grade ?? s.year_level,
+            strand: s.strand ?? s.track ?? s.strand_code,
+          };
+        });
+        return map;
+      }
+    } catch {}
+    return {} as Record<number, Partial<PrefItem>>;
+  };
+
+  const openAssignModal = async (prof: Professor) => {
+    setAssignFor(prof);
+    setPrefLoading(true);
+    setAssignOpen(true);
+    try {
+      const base = await fetchPreferred(prof);
+      const idList = base.map((b) => b.subj_id);
+      const detailsMap = await fetchSubjectDetailsByIds(idList);
+      const merged = base.map((b) => ({ ...b, ...(detailsMap[b.subj_id] || {}) }));
+      setPrefList(merged);
+      // Pre-select what’s currently assigned intersect preferred
+      const assigned = new Set<number>((prof.subject_ids || []).map((v: any) => Number(v)));
+      const picks: Record<number, boolean> = {};
+      merged.forEach((m) => {
+        picks[m.subj_id] = assigned.has(m.subj_id);
+      });
+      setAssignPick(picks);
+    } catch (e) {
+      setPrefList([]);
+      setAssignPick({});
+      toast({
+        variant: "destructive",
+        title: "Failed to load preferred subjects",
+        description: e instanceof Error ? e.message : "Please try again.",
+      });
+    } finally {
+      setPrefLoading(false);
+    }
+  };
+
+  const togglePick = (sid: number) => {
+    setAssignPick((m) => ({ ...m, [sid]: !m[sid] }));
+  };
+
+  const setAllPick = (value: boolean) => {
+    const next: Record<number, boolean> = {};
+    prefList.forEach((p) => (next[p.subj_id] = value));
+    setAssignPick(next);
+  };
+
+  const saveAssignment = async () => {
+    if (!assignFor) return;
+    const chosen = Object.entries(assignPick)
+      .filter(([, v]) => v)
+      .map(([k]) => Number(k));
+    try {
+      setAssignSaving(true);
+      const res = await fetch(`https://spcc-scheduler.site/professors.php?id=${assignFor.id}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ subject_ids: chosen }),
+      });
+      const json = await res.json();
+      if (json?.status === "error") throw new Error(json?.message || "Failed to assign subjects");
+      setAssignOpen(false);
+      setAssignFor(null);
+      await fetchProfessors();
+      setSuccessMessage("Subjects assigned from preferred list.");
+      setIsSuccessDialogOpen(true);
+    } catch (e) {
+      toast({
+        variant: "destructive",
+        title: "Assign failed",
+        description: e instanceof Error ? e.message : "Could not save assignments.",
+      });
+    } finally {
+      setAssignSaving(false);
+    }
+  };
+
+  // ---------- Filtering & pagination ----------
   const filteredProfessors = useMemo(
     () =>
       professors.filter(
@@ -526,7 +652,6 @@ const ProfessorManagement = () => {
       <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between mb-6">
         <h2 className="text-2xl font-bold">Professor Management</h2>
         <div className="flex gap-2 flex-wrap">
-          {/* Removed: Credentials Viewer */}
           <Button variant="outline" onClick={exportToExcel} className="flex items-center gap-2">
             <FileSpreadsheet className="h-4 w-4" /> Export Excel
           </Button>
@@ -592,8 +717,20 @@ const ProfessorManagement = () => {
                       <div className="text-xs text-muted-foreground">{p.email || "N/A"}</div>
                       <div className="text-xs text-muted-foreground">Phone: {p.phone || "N/A"}</div>
                     </div>
-                    <div className="col-span-6 md:col-span-6 flex items-center md:justify-end">
+                    <div className="col-span-6 md:col-span-6 flex items-center md:justify-end gap-2">
                       <span className={getWorkloadStatusClass(count)}>{getWorkloadStatusText(count)}</span>
+
+                      {/* NEW: Assign button */}
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        className="ml-2"
+                        onClick={() => openAssignModal(p)}
+                        title="Assign from preferred subjects"
+                      >
+                        <ListIcon className="h-4 w-4 mr-1" />
+                        Assign Subjects
+                      </Button>
                     </div>
                   </div>
 
@@ -800,6 +937,7 @@ const ProfessorManagement = () => {
         </div>
       </div>
 
+      {/* Add / Edit dialogs (unchanged) */}
       {isAddDialogOpen && (
         <ProfessorForm
           open={isAddDialogOpen}
@@ -827,13 +965,11 @@ const ProfessorManagement = () => {
           }}
           onSaved={async () => {
             setIsEditDialogOpen(false);
-
             const profId = String(selectedProfessor.id);
             setSubjectsLoadedIds((m) => ({ ...m, [profId]: false }));
             setProfessors((prev) =>
               prev.map((p) => (p.id === profId ? { ...p, subjects: undefined } : p))
             );
-
             setSelectedProfessor(null);
             await fetchProfessors();
             setSuccessMessage(`Professor updated successfully!`);
@@ -842,6 +978,7 @@ const ProfessorManagement = () => {
         />
       )}
 
+      {/* Delete confirm (unchanged) */}
       {isDeleteDialogOpen && selectedProfessor && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
           <div className="bg-white rounded-md p-6 w-[420px] shadow-lg">
@@ -863,6 +1000,94 @@ const ProfessorManagement = () => {
                 Delete
               </Button>
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* NEW: Assign-from-preferred modal */}
+      {assignOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
+          <div className="bg-white rounded-md p-6 w-full max-w-2xl shadow-lg">
+            <div className="flex items-center justify-between mb-2">
+              <div className="text-xl font-bold">
+                Assign Preferred Subjects{assignFor ? ` — ${assignFor.name}` : ""}
+              </div>
+              <Button variant="ghost" onClick={() => { setAssignOpen(false); setAssignFor(null); }}>
+                Close
+              </Button>
+            </div>
+
+            {prefLoading ? (
+              <div className="py-8 text-center text-muted-foreground">Loading preferred subjects…</div>
+            ) : prefList.length === 0 ? (
+              <div className="py-8 text-center text-muted-foreground">
+                No preferred subjects saved for this professor.
+              </div>
+            ) : (
+              <>
+                <div className="flex items-center justify-between mb-3">
+                  <div className="text-sm text-muted-foreground">
+                    Select from this professor’s preferred subjects only.
+                  </div>
+                  <div className="flex gap-2">
+                    <Button variant="outline" size="sm" onClick={() => setAllPick(true)}>Select All</Button>
+                    <Button variant="outline" size="sm" onClick={() => setAllPick(false)}>Clear</Button>
+                  </div>
+                </div>
+
+                <div className="max-h-[420px] overflow-auto rounded border">
+                  <Table>
+                    <TableHeader>
+                      <TableRow>
+                        <TableHead className="w-[60px]">Pick</TableHead>
+                        <TableHead className="w-[120px]">Proficiency</TableHead>
+                        <TableHead className="w-[140px]">Subject Code</TableHead>
+                        <TableHead>Subject Name</TableHead>
+                        <TableHead className="w-[110px]">Grade</TableHead>
+                        <TableHead className="w-[120px]">Strand</TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {prefList.map((p) => (
+                        <TableRow key={p.subj_id}>
+                          <TableCell>
+                            <input
+                              type="checkbox"
+                              className="h-4 w-4"
+                              checked={!!assignPick[p.subj_id]}
+                              onChange={() => togglePick(p.subj_id)}
+                            />
+                          </TableCell>
+                          <TableCell className="capitalize">{p.proficiency}</TableCell>
+                          <TableCell>{p.subj_code ?? `ID ${p.subj_id}`}</TableCell>
+                          <TableCell>{p.subj_name ?? "—"}</TableCell>
+                          <TableCell>{p.grade_level ? normalizeGrade(p.grade_level) : "—"}</TableCell>
+                          <TableCell>{p.strand ? normalizeStrand(p.strand) : "—"}</TableCell>
+                        </TableRow>
+                      ))}
+                    </TableBody>
+                  </Table>
+                </div>
+
+                <div className="flex items-center justify-between mt-4">
+                  <div className="text-sm text-muted-foreground">
+                    Selected:{" "}
+                    <span className="font-medium">
+                      {Object.values(assignPick).filter(Boolean).length}
+                    </span>
+                    /{prefList.length}
+                  </div>
+                  <div className="flex gap-2">
+                    <Button variant="outline" onClick={() => { setAssignOpen(false); setAssignFor(null); }}>
+                      Cancel
+                    </Button>
+                    <Button onClick={saveAssignment} disabled={assignSaving}>
+                      {assignSaving ? "Saving…" : "Save Assignment"}
+                    </Button>
+                  </div>
+                </div>
+              </>
+            )}
           </div>
         </div>
       )}

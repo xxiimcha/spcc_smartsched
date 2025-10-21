@@ -38,7 +38,6 @@ export interface ApiResponse<T = any> {
   error?: string;
 }
 
-/** UI-facing Subject shape (what components consume) */
 export interface SubjectDTO {
   id: number;
   code: string;
@@ -47,16 +46,14 @@ export interface SubjectDTO {
   units?: number;
   type?: string;
   hoursPerWeek?: number;
-  gradeLevel?: string | null; // '11' | '12' | null
-  strand?: string | null;     // e.g., ICT, STEM, ...
+  gradeLevel?: string | null;
+  strand?: string | null;
   schedule_count?: number;
 }
 
 type BulkDeleteResult = { deleted_ids?: number[]; message?: string };
 
-/** Payload you can send to backend (accepts both camel & snake). */
 export type SubjectPayload = {
-  // backend snake_case (any optional; backend accepts partial on PUT)
   subj_code?: string;
   subj_name?: string;
   subj_description?: string;
@@ -66,13 +63,11 @@ export type SubjectPayload = {
   grade_level?: string | null;
   strand?: string | null;
   is_active?: number;
-
-  // camelCase aliases
   code?: string;
   name?: string;
   description?: string;
   units?: number;
-  type?: string;              // maps to subj_type
+  type?: string;
   hoursPerWeek?: number;
   gradeLevel?: string | null;
 };
@@ -143,7 +138,6 @@ export interface Schedule {
   days: string[];
 }
 
-/** NEW: types for auto-generation */
 export interface AutoGenPayload {
   school_year: string;
   semester: string;
@@ -164,12 +158,11 @@ export interface AutoGenResult {
   details?: any;
 }
 
-/** NEW: DTOs for dashboard endpoints */
 export interface ActivityDTO {
   id: number;
   description: string;
-  timestamp: string; // ISO-ish
-  type: string;      // professor | subject | schedule | room | section | other
+  timestamp: string;
+  type: string;
 }
 
 export interface WorkloadAlertDTO {
@@ -234,10 +227,16 @@ class ApiService {
   async makeRequest<T>(
     method: "GET" | "POST" | "PUT" | "DELETE",
     endpoint: string,
-    data?: any
+    data?: any,
+    config?: any
   ): Promise<ApiResponse<T>> {
     try {
-      const response: AxiosResponse = await apiClient({ method, url: endpoint, data });
+      const response: AxiosResponse = await apiClient({
+        method,
+        url: endpoint,
+        data,
+        ...(config || {}),
+      });
       return {
         success: response.data.status === "success" || response.data.success === true,
         status: response.data.status,
@@ -286,6 +285,39 @@ class ApiService {
     return { ...response, data: mapped };
   }
 
+  // --- Users ----------------------------------------------------------------
+
+  async getUsers(): Promise<ApiResponse<any[]>> {
+    const response = await this.makeRequest<any>("GET", "/users.php");
+    const rows = Array.isArray(response.data)
+      ? response.data.map((r) => ({
+          id: Number(r.id),
+          username: String(r.username ?? ""),
+          email: String(r.email ?? ""),
+          name: String(r.name ?? ""),
+          role: String(r.role ?? ""),
+          status: String(r.status ?? ""),
+          last_login: r.last_login ?? null,
+        }))
+      : [];
+    return { ...response, data: rows };
+  }
+
+  async createUser(payload: {
+    name?: string;
+    username: string;
+    email: string;
+    role: "admin" | "acad_head";
+    status?: "active" | "inactive";
+    password?: string;
+  }): Promise<ApiResponse> {
+    return this.makeRequest("POST", "/users.php", payload, {
+      headers: { "X-User-Role": "super_admin" },
+    });
+  }
+
+  // --- Subjects CRUD --------------------------------------------------------
+
   async createSubject(subject: SubjectPayload): Promise<ApiResponse<SubjectDTO>> {
     return this.makeRequest<SubjectDTO>("POST", "/subjects.php", subject);
   }
@@ -318,7 +350,7 @@ class ApiService {
       preferences,
     });
   }
-  
+
   async getListOfSubjects(professorId?: number | string): Promise<ApiResponse> {
     const pid = professorId != null ? String(professorId) : "";
     const url = pid ? `/get_list_of_subjects.php?professor_id=${pid}` : "/get_list_of_subjects.php";
@@ -404,7 +436,6 @@ class ApiService {
     if (filters?.school_year) qp.append("school_year", filters.school_year);
     if (filters?.semester) qp.append("semester", filters.semester);
     if (filters?.professor_id != null) qp.append("professor_id", String(filters.professor_id));
-    // always add a cache-buster so callers don't need to type `_t`
     qp.append("_t", String(filters?._t ?? Date.now()));
     const url = `/schedule.php?${qp.toString()}`;
     const response = await this.makeRequest<any>("GET", url);
@@ -413,37 +444,25 @@ class ApiService {
 
   async createSchedule(schedule: Omit<Schedule, "schedule_id">): Promise<ApiResponse<Schedule>> {
     const result = await this.makeRequest<Schedule>("POST", "/schedule.php", schedule);
-    if (result.success) {
-      try { await this.syncToFirebase(); } catch (e) { console.warn("Failed to sync to Firebase after schedule creation:", e); }
-    }
+    if (result.success) { try { await this.syncToFirebase(); } catch (e) { console.warn("Failed to sync to Firebase after schedule creation:", e); } }
     return result;
   }
 
   async updateSchedule(id: number, schedule: Partial<Schedule>): Promise<ApiResponse<Schedule>> {
     const result = await this.makeRequest<Schedule>("PUT", `/schedule.php?id=${id}`, schedule);
-    if (result.success) {
-      try { await this.syncToFirebase(); } catch (e) { console.warn("Failed to sync to Firebase after schedule update:", e); }
-    }
+    if (result.success) { try { await this.syncToFirebase(); } catch (e) { console.warn("Failed to sync to Firebase after schedule update:", e); } }
     return result;
   }
 
   async deleteSchedule(id: number | string): Promise<ApiResponse> {
     const result = await this.makeRequest("DELETE", `/schedule.php?id=${id}`);
-    if (result.success) {
-      try { await this.syncToFirebase(); } catch (e) { console.warn("Failed to sync to Firebase after schedule deletion:", e); }
-    }
+    if (result.success) { try { await this.syncToFirebase(); } catch (e) { console.warn("Failed to sync to Firebase after schedule deletion:", e); } }
     return result;
   }
-  
+
   async deleteSchedulesBulk(ids: number[]): Promise<ApiResponse<BulkDeleteResult>> {
-    const result = await this.makeRequest<BulkDeleteResult>(
-      "DELETE",
-      "/schedule.php",
-      { ids }
-    );
-    if (result.success) {
-      try { await this.syncToFirebase(); } catch (e) { console.warn("Failed to sync to Firebase after bulk delete:", e); }
-    }
+    const result = await this.makeRequest<BulkDeleteResult>("DELETE", "/schedule.php", { ids });
+    if (result.success) { try { await this.syncToFirebase(); } catch (e) { console.warn("Failed to sync to Firebase after bulk delete:", e); } }
     return result;
   }
 
@@ -453,24 +472,16 @@ class ApiService {
     school_year?: string;
     semester?: string;
   }): Promise<ApiResponse<BulkDeleteResult>> {
-    const result = await this.makeRequest<BulkDeleteResult>(
-      "DELETE",
-      "/schedule.php",
-      payload
-    );
-    if (result.success) {
-      try { await this.syncToFirebase(); } catch (e) { console.warn("Failed to sync to Firebase after section bulk delete:", e); }
-    }
+    const result = await this.makeRequest<BulkDeleteResult>("DELETE", "/schedule.php", payload);
+    if (result.success) { try { await this.syncToFirebase(); } catch (e) { console.warn("Failed to sync to Firebase after section bulk delete:", e); } }
     return result;
   }
 
   async updateScheduleProfessor(scheduleId: number | string, professorId: number | string): Promise<ApiResponse> {
     const id = /^\d+$/.test(String(scheduleId)) ? Number(scheduleId) : scheduleId;
-    return this.makeRequest("PUT", `/schedule.php?id=${id}`, {
-      prof_id: Number(professorId),
-    });
+    return this.makeRequest("PUT", `/schedule.php?id=${id}`, { prof_id: Number(professorId) });
   }
-  
+
   async getAvailableTimeSlots(data: {
     school_year: string;
     semester: string;
@@ -506,7 +517,7 @@ class ApiService {
   async updateSchoolHead(id: number, data: any): Promise<ApiResponse> { return this.makeRequest("PUT", `/acad_head.php?id=${id}`, data); }
   async deleteSchoolHead(id: number): Promise<ApiResponse> { return this.makeRequest("DELETE", `/acad_head.php?id=${id}`); }
 
-  // --- Dashboard (normalized here!) ----------------------------------------
+  // --- Dashboard ------------------------------------------------------------
 
   async getDashboardActivities(): Promise<ApiResponse<ActivityDTO[]>> {
     const base = await this.makeRequest<any>("GET", "/dashboard_activities.php");
@@ -525,7 +536,7 @@ class ApiService {
     return { ...base, data: mapped };
   }
 
-  // --- Bulk upload / Sync / Optimizer --------------------------------------
+  // --- Bulk upload / Sync ---------------------------------------------------
 
   async bulkUploadSubjects(formData: FormData): Promise<ApiResponse> {
     try {
@@ -580,16 +591,12 @@ class ApiService {
     });
   }
 
-  /** Existing autogen (kept) */
   async autoGenerateSchedules(payload: AutoGenPayload): Promise<ApiResponse<AutoGenResult>> {
     const result = await this.makeRequest<AutoGenResult>("POST", "/schedule_autogen.php", payload);
-    if (result.success) {
-      try { await this.syncToFirebase(); } catch (error) { console.warn("Failed to sync to Firebase after auto-generate:", error); }
-    }
+    if (result.success) { try { await this.syncToFirebase(); } catch (error) { console.warn("Failed to sync to Firebase after auto-generate:", error); } }
     return result;
   }
 
-  /** Alias so components can call apiService.autoGenerate(...) */
   async autoGenerate(payload: AutoGenPayload): Promise<ApiResponse<AutoGenResult>> {
     return this.autoGenerateSchedules(payload);
   }

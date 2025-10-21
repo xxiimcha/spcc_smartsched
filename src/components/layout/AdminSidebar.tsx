@@ -224,7 +224,6 @@ const AdminSidebar = ({ isOpen, onToggle }: AdminSidebarProps) => {
             isOpen={isOpen}
           />
 
-          {/* ⬅️ NEW: User Management (visible to admin + super_admin) */}
           {isAdminOrSuper && (
             <NavItem
               icon={<Users className="h-5 w-5" />}
