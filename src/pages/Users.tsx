@@ -4,7 +4,14 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Select, SelectTrigger, SelectValue, SelectContent, SelectItem } from "@/components/ui/select";
 import { Badge } from "@/components/ui/badge";
-import { DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuLabel } from "@/components/ui/dropdown-menu";
+import {
+  DropdownMenu,
+  DropdownMenuTrigger,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuLabel,
+} from "@/components/ui/dropdown-menu";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Table, TableHeader, TableHead, TableBody, TableRow, TableCell } from "@/components/ui/table";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription } from "@/components/ui/dialog";
@@ -66,6 +73,9 @@ function statusBadge(status: Status) {
 const Users: React.FC = () => {
   const { user } = useAuth();
   const isSuperAdmin = user?.role === "super_admin";
+  const isAdmin = user?.role === "admin";
+  const canAddUsers = isSuperAdmin || isAdmin;
+
   const { toast } = useToast();
 
   const [rows, setRows] = useState<UserRow[]>([]);
@@ -86,11 +96,17 @@ const Users: React.FC = () => {
     password: "",
   });
 
+  useEffect(() => {
+    console.log("[Users] role:", user?.role, { isSuperAdmin, isAdmin, canAddUsers });
+  }, [user?.role]);
+
   async function fetchUsers() {
     try {
       setLoading(true);
       const res = await apiService.getUsers();
-      const data: UserRow[] = Array.isArray(res.data) ? (res.data as UserRow[]) : [];
+      // tolerate either axios response or direct payload
+      const dataMaybe = Array.isArray(res) ? res : res?.data;
+      const data: UserRow[] = Array.isArray(dataMaybe) ? (dataMaybe as UserRow[]) : [];
       setRows(data);
     } catch (err: any) {
       toast({
@@ -121,58 +137,93 @@ const Users: React.FC = () => {
     });
   }, [q, roleFilter, statusFilter, rows]);
 
-async function handleCreate() {
-  if (!isSuperAdmin) {
-    toast({ title: "Not allowed", description: "Only super admins can add users.", variant: "destructive" });
-    return;
-  }
-  if (!["admin", "acad_head"].includes(form.role)) {
-    toast({ title: "Role restricted", description: "You can only create Admin or Academic Head accounts.", variant: "destructive" });
-    return;
-  }
-  if (!form.username || !form.email) {
-    toast({ title: "Missing fields", description: "Username and Email are required." });
-    return;
-  }
+  async function handleCreateSubmit(e?: React.FormEvent) {
+    e?.preventDefault();
 
-  try {
-    setSaving(true);
+    console.log("[Users] submit create", { canAddUsers, isAdmin, isSuperAdmin, form });
 
-    // build a payload that matches `createUser` signature exactly
-    const nameTrimmed = form.name.trim();
-    const payload: Parameters<typeof apiService.createUser>[0] = {
-      // omit the key when empty; or pass undefined, never null
-      ...(nameTrimmed ? { name: nameTrimmed } : {}),
-      username: form.username.trim(),
-      email: form.email.trim(),
-      role: form.role as "admin" | "acad_head",
-      status: form.status as "active" | "inactive",
-      password: form.password ? form.password : undefined,
-    };
+    if (!canAddUsers) {
+      toast({
+        title: "Not allowed",
+        description: "Only Super Admins or Admins can add users.",
+        variant: "destructive",
+      });
+      return;
+    }
+    // Permission rules
+    if (isAdmin && form.role !== "acad_head") {
+      toast({
+        title: "Role restricted",
+        description: "Admins can only create Academic Head accounts.",
+        variant: "destructive",
+      });
+      return;
+    }
+    if (isSuperAdmin && !["admin", "acad_head"].includes(form.role)) {
+      toast({
+        title: "Role restricted",
+        description: "Super Admins can create Admin or Academic Head accounts only.",
+        variant: "destructive",
+      });
+      return;
+    }
 
-    const res = await apiService.createUser(payload);
-    if (res?.status === "ok" || res?.success) {
+    if (!form.username?.trim() || !form.email?.trim()) {
+      toast({ title: "Missing fields", description: "Username and Email are required.", variant: "destructive" });
+      return;
+    }
+
+    try {
+      setSaving(true);
+
+      const payload: Parameters<typeof apiService.createUser>[0] = {
+        ...(form.name.trim() ? { name: form.name.trim() } : {}),
+        username: form.username.trim(),
+        email: form.email.trim(),
+        role: form.role as "admin" | "acad_head",
+        status: form.status as "active" | "inactive",
+        password: form.password ? form.password : undefined,
+      };
+
+      console.log("[Users] POST /createUser payload:", payload);
+
+      const res = await apiService.createUser(payload);
+      const data = res?.data ?? res;
+      console.log("[Users] createUser response:", data);
+
+      const ok =
+        data?.success === true ||
+        data?.status === "ok" ||
+        data?.status === "success" ||
+        data?.message?.toLowerCase?.().includes("created");
+
+      if (!ok) throw new Error(data?.message || "Create failed");
+
       toast({
         title: "User created",
         description: `${form.role === "admin" ? "Admin" : "Academic Head"} account has been added.`,
       });
       setOpenAdd(false);
-      setForm({ name: "", username: "", email: "", role: "admin", status: "active", password: "" });
+      setForm({
+        name: "",
+        username: "",
+        email: "",
+        role: isAdmin ? "acad_head" : "admin",
+        status: "active",
+        password: "",
+      });
       fetchUsers();
-    } else {
-      throw new Error(res?.message || "Create failed");
+    } catch (err: any) {
+      console.error("[Users] create error:", err);
+      toast({
+        title: "Create failed",
+        description: err?.response?.data?.message || err?.message || "Please verify inputs and try again.",
+        variant: "destructive",
+      });
+    } finally {
+      setSaving(false);
     }
-  } catch (err: any) {
-    toast({
-      title: "Create failed",
-      description: err?.response?.data?.message || err?.message || "Please verify inputs and try again.",
-      variant: "destructive",
-    });
-  } finally {
-    setSaving(false);
   }
-}
-
 
   return (
     <div className="p-6">
@@ -188,8 +239,16 @@ async function handleCreate() {
             {loading ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : null}
             Refresh
           </Button>
-          {isSuperAdmin && (
-            <Button onClick={() => setOpenAdd(true)}>
+          {canAddUsers && (
+            <Button
+              onClick={() => {
+                setForm((f) => ({
+                  ...f,
+                  role: isAdmin ? ("acad_head" as Role) : ("admin" as Role),
+                }));
+                setOpenAdd(true);
+              }}
+            >
               <Plus className="h-4 w-4 mr-2" />
               Add User
             </Button>
@@ -213,7 +272,9 @@ async function handleCreate() {
                   onChange={(e) => setQ(e.target.value)}
                 />
               </div>
-              <Button variant="secondary" disabled>Apply</Button>
+              <Button variant="secondary" disabled>
+                Apply
+              </Button>
             </div>
 
             <div className="flex gap-2">
@@ -223,7 +284,9 @@ async function handleCreate() {
                 </SelectTrigger>
                 <SelectContent>
                   {ROLE_OPTIONS.map((r) => (
-                    <SelectItem key={r.value} value={r.value as any}>{r.label}</SelectItem>
+                    <SelectItem key={r.value} value={r.value as any}>
+                      {r.label}
+                    </SelectItem>
                   ))}
                 </SelectContent>
               </Select>
@@ -234,7 +297,9 @@ async function handleCreate() {
                 </SelectTrigger>
                 <SelectContent>
                   {STATUS_OPTIONS.map((s) => (
-                    <SelectItem key={s.value} value={s.value as any}>{s.label}</SelectItem>
+                    <SelectItem key={s.value} value={s.value as any}>
+                      {s.label}
+                    </SelectItem>
                   ))}
                 </SelectContent>
               </Select>
@@ -273,37 +338,38 @@ async function handleCreate() {
                     </TableCell>
                   </TableRow>
                 )}
-                {!loading && filtered.map((u) => (
-                  <TableRow key={u.id}>
-                    <TableCell>
-                      <User2 className="h-4 w-4 text-muted-foreground" />
-                    </TableCell>
-                    <TableCell className="font-medium">{u.name || "—"}</TableCell>
-                    <TableCell>{u.username}</TableCell>
-                    <TableCell>{u.email}</TableCell>
-                    <TableCell>{roleBadge(u.role)}</TableCell>
-                    <TableCell>{statusBadge(u.status)}</TableCell>
-                    <TableCell>{u.last_login ? new Date(u.last_login).toLocaleString() : "—"}</TableCell>
-                    <TableCell className="text-right">
-                      <DropdownMenu>
-                        <DropdownMenuTrigger asChild>
-                          <Button variant="ghost" size="icon">
-                            <MoreVertical className="h-4 w-4" />
-                          </Button>
-                        </DropdownMenuTrigger>
-                        <DropdownMenuContent align="end">
-                          <DropdownMenuLabel>Actions</DropdownMenuLabel>
-                          <DropdownMenuItem disabled>Edit</DropdownMenuItem>
-                          <DropdownMenuItem disabled>Reset Password</DropdownMenuItem>
-                          <DropdownMenuSeparator />
-                          <DropdownMenuItem disabled>
-                            {u.status === "active" ? "Deactivate" : "Activate"}
-                          </DropdownMenuItem>
-                        </DropdownMenuContent>
-                      </DropdownMenu>
-                    </TableCell>
-                  </TableRow>
-                ))}
+                {!loading &&
+                  filtered.map((u) => (
+                    <TableRow key={u.id}>
+                      <TableCell>
+                        <User2 className="h-4 w-4 text-muted-foreground" />
+                      </TableCell>
+                      <TableCell className="font-medium">{u.name || "—"}</TableCell>
+                      <TableCell>{u.username}</TableCell>
+                      <TableCell>{u.email}</TableCell>
+                      <TableCell>{roleBadge(u.role)}</TableCell>
+                      <TableCell>{statusBadge(u.status)}</TableCell>
+                      <TableCell>{u.last_login ? new Date(u.last_login).toLocaleString() : "—"}</TableCell>
+                      <TableCell className="text-right">
+                        <DropdownMenu>
+                          <DropdownMenuTrigger asChild>
+                            <Button variant="ghost" size="icon">
+                              <MoreVertical className="h-4 w-4" />
+                            </Button>
+                          </DropdownMenuTrigger>
+                          <DropdownMenuContent align="end">
+                            <DropdownMenuLabel>Actions</DropdownMenuLabel>
+                            <DropdownMenuItem disabled>Edit</DropdownMenuItem>
+                            <DropdownMenuItem disabled>Reset Password</DropdownMenuItem>
+                            <DropdownMenuSeparator />
+                            <DropdownMenuItem disabled>
+                              {u.status === "active" ? "Deactivate" : "Activate"}
+                            </DropdownMenuItem>
+                          </DropdownMenuContent>
+                        </DropdownMenu>
+                      </TableCell>
+                    </TableRow>
+                  ))}
               </TableBody>
             </Table>
           </div>
@@ -315,61 +381,89 @@ async function handleCreate() {
           <DialogHeader>
             <DialogTitle>Add User</DialogTitle>
             <DialogDescription>
-              Super Admins can create <span className="font-medium">Admin</span> or <span className="font-medium">Academic Head</span> accounts.
+              Super Admins can create <span className="font-medium">Admin</span> or{" "}
+              <span className="font-medium">Academic Head</span> accounts. Admins can create{" "}
+              <span className="font-medium">Academic Head</span> only.
             </DialogDescription>
           </DialogHeader>
 
-          <div className="grid gap-3 py-2">
-            <div className="grid gap-1">
-              <Label htmlFor="name">Full Name (optional)</Label>
-              <Input id="name" value={form.name} onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))} />
+          <form onSubmit={handleCreateSubmit}>
+            <div className="grid gap-3 py-2">
+              <div className="grid gap-1">
+                <Label htmlFor="name">Full Name (optional)</Label>
+                <Input
+                  id="name"
+                  value={form.name}
+                  onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))}
+                />
+              </div>
+
+              <div className="grid gap-1">
+                <Label htmlFor="username">Username</Label>
+                <Input
+                  id="username"
+                  value={form.username}
+                  onChange={(e) => setForm((f) => ({ ...f, username: e.target.value }))}
+                />
+              </div>
+
+              <div className="grid gap-1">
+                <Label htmlFor="email">Email</Label>
+                <Input
+                  id="email"
+                  type="email"
+                  value={form.email}
+                  onChange={(e) => setForm((f) => ({ ...f, email: e.target.value }))}
+                />
+              </div>
+
+              <div className="grid gap-1">
+                <Label>Role</Label>
+                <Select value={form.role} onValueChange={(v) => setForm((f) => ({ ...f, role: v as Role }))}>
+                  <SelectTrigger>
+                    <SelectValue placeholder="Select Role" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {isSuperAdmin && <SelectItem value="admin">Admin</SelectItem>}
+                    <SelectItem value="acad_head">Academic Head</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+
+              <div className="grid gap-1">
+                <Label htmlFor="status">Status</Label>
+                <Select value={form.status} onValueChange={(v) => setForm((f) => ({ ...f, status: v as Status }))}>
+                  <SelectTrigger id="status">
+                    <SelectValue placeholder="Status" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="active">Active</SelectItem>
+                    <SelectItem value="inactive">Inactive</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+
+              <div className="grid gap-1">
+                <Label htmlFor="password">Password (optional)</Label>
+                <Input
+                  id="password"
+                  type="password"
+                  value={form.password}
+                  onChange={(e) => setForm((f) => ({ ...f, password: e.target.value }))}
+                />
+              </div>
             </div>
 
-            <div className="grid gap-1">
-              <Label htmlFor="username">Username</Label>
-              <Input id="username" value={form.username} onChange={(e) => setForm((f) => ({ ...f, username: e.target.value }))} />
-            </div>
-
-            <div className="grid gap-1">
-              <Label htmlFor="email">Email</Label>
-              <Input id="email" type="email" value={form.email} onChange={(e) => setForm((f) => ({ ...f, email: e.target.value }))} />
-            </div>
-
-            <div className="grid gap-1">
-              <Label>Role</Label>
-              <Select value={form.role} onValueChange={(v) => setForm((f) => ({ ...f, role: v as Role }))}>
-                <SelectTrigger><SelectValue placeholder="Select Role" /></SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="admin">Admin</SelectItem>
-                  <SelectItem value="acad_head">Academic Head</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
-
-            <div className="grid gap-1">
-              <Label htmlFor="status">Status</Label>
-              <Select value={form.status} onValueChange={(v) => setForm((f) => ({ ...f, status: v as Status }))}>
-                <SelectTrigger id="status"><SelectValue placeholder="Status" /></SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="active">Active</SelectItem>
-                  <SelectItem value="inactive">Inactive</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
-
-            <div className="grid gap-1">
-              <Label htmlFor="password">Password (optional)</Label>
-              <Input id="password" type="password" value={form.password} onChange={(e) => setForm((f) => ({ ...f, password: e.target.value }))} />
-            </div>
-          </div>
-
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setOpenAdd(false)} disabled={saving}>Cancel</Button>
-            <Button onClick={handleCreate} disabled={saving || !isSuperAdmin}>
-              {saving ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : null}
-              Create User
-            </Button>
-          </DialogFooter>
+            <DialogFooter>
+              <Button type="button" variant="outline" onClick={() => setOpenAdd(false)} disabled={saving}>
+                Cancel
+              </Button>
+              <Button type="submit" disabled={saving || !canAddUsers}>
+                {saving ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : null}
+                Create User
+              </Button>
+            </DialogFooter>
+          </form>
         </DialogContent>
       </Dialog>
     </div>
