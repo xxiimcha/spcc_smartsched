@@ -291,7 +291,7 @@ class ApiService {
     const response = await this.makeRequest<any>("GET", "/users.php");
     const rows = Array.isArray(response.data)
       ? response.data.map((r) => ({
-          id: Number(r.id),
+          id: Number(r.id ?? r.user_id),   // <-- FIX HERE
           username: String(r.username ?? ""),
           email: String(r.email ?? ""),
           name: String(r.name ?? ""),
@@ -302,6 +302,7 @@ class ApiService {
       : [];
     return { ...response, data: rows };
   }
+
 
   async createUser(payload: {
     name?: string;
