@@ -242,26 +242,24 @@ const AdminSidebar = ({ isOpen, onToggle }: AdminSidebarProps) => {
             isOpen={isOpen}
           />
 
-          {isSuperAdmin && (
-            <TooltipProvider>
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <Button
-                    variant="ghost"
-                    className={cn(
-                      "w-full justify-start gap-3 mb-1 text-left text-muted-foreground",
-                      !isOpen && "justify-center px-2"
-                    )}
-                    onClick={() => setExportOpen(true)}
-                  >
-                    <FileDown className="h-5 w-5" />
-                    {isOpen && <span>Export Data</span>}
-                  </Button>
-                </TooltipTrigger>
-                <TooltipContent side="right">Export Data</TooltipContent>
-              </Tooltip>
-            </TooltipProvider>
-          )}
+          <TooltipProvider>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button
+                  variant="ghost"
+                  className={cn(
+                    "w-full justify-start gap-3 mb-1 text-left text-muted-foreground",
+                    !isOpen && "justify-center px-2"
+                  )}
+                  onClick={() => setExportOpen(true)}
+                >
+                  <FileDown className="h-5 w-5" />
+                  {isOpen && <span>Export Data</span>}
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent side="right">Export Data</TooltipContent>
+            </Tooltip>
+          </TooltipProvider>
         </nav>
       </div>
 
