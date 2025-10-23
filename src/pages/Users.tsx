@@ -1,8 +1,23 @@
+// src/pages/Users.tsx
 import React, { useEffect, useMemo, useState } from "react";
-import { Plus, MoreVertical, Search, User2, CheckCircle2, XCircle, Loader2 } from "lucide-react";
+import {
+  Plus,
+  MoreVertical,
+  Search,
+  User2,
+  CheckCircle2,
+  XCircle,
+  Loader2,
+} from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Select, SelectTrigger, SelectValue, SelectContent, SelectItem } from "@/components/ui/select";
+import {
+  Select,
+  SelectTrigger,
+  SelectValue,
+  SelectContent,
+  SelectItem,
+} from "@/components/ui/select";
 import { Badge } from "@/components/ui/badge";
 import {
   DropdownMenu,
@@ -13,8 +28,22 @@ import {
   DropdownMenuLabel,
 } from "@/components/ui/dropdown-menu";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Table, TableHeader, TableHead, TableBody, TableRow, TableCell } from "@/components/ui/table";
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription } from "@/components/ui/dialog";
+import {
+  Table,
+  TableHeader,
+  TableHead,
+  TableBody,
+  TableRow,
+  TableCell,
+} from "@/components/ui/table";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogFooter,
+  DialogDescription,
+} from "@/components/ui/dialog";
 import { Label } from "@/components/ui/label";
 import { apiService } from "@/services/apiService";
 import { useToast } from "@/components/ui/use-toast";
@@ -23,7 +52,7 @@ import { useAuth } from "@/contexts/AuthContext";
 type Role = "super_admin" | "admin" | "acad_head" | "professor";
 type Status = "active" | "inactive";
 
-type UserRow = {
+export type UserRow = {
   id: string | number;
   username: string;
   email: string;
@@ -33,21 +62,13 @@ type UserRow = {
   last_login?: string | null;
 };
 
-const ROLE_OPTIONS: { value: Role | "all"; label: string }[] = [
-  { value: "all", label: "All Roles" },
-  { value: "super_admin", label: "Super Admin" },
-  { value: "admin", label: "Admin" },
-  { value: "acad_head", label: "Academic Head" },
-  { value: "professor", label: "Professor" },
-];
-
 const STATUS_OPTIONS: { value: Status | "all"; label: string }[] = [
   { value: "all", label: "All Status" },
   { value: "active", label: "Active" },
   { value: "inactive", label: "Inactive" },
 ];
 
-function roleBadge(role: Role) {
+function RoleBadge({ role }: { role: Role }) {
   const map: Record<Role, { label: string; className: string }> = {
     super_admin: { label: "Super Admin", className: "bg-purple-100 text-purple-700" },
     admin: { label: "Admin", className: "bg-blue-100 text-blue-700" },
@@ -58,7 +79,7 @@ function roleBadge(role: Role) {
   return <Badge className={r.className}>{r.label}</Badge>;
 }
 
-function statusBadge(status: Status) {
+function StatusBadge({ status }: { status: Status }) {
   return status === "active" ? (
     <Badge className="bg-emerald-100 text-emerald-700 flex gap-1">
       <CheckCircle2 className="h-3.5 w-3.5" /> Active
@@ -70,16 +91,41 @@ function statusBadge(status: Status) {
   );
 }
 
+function canViewUser(viewerRole?: Role, targetRole?: Role) {
+  if (!viewerRole || !targetRole) return false;
+  if (viewerRole === "super_admin") return targetRole === "admin" || targetRole === "acad_head";
+  if (viewerRole === "admin") return targetRole === "acad_head";
+  return false;
+}
+
+function visibleRoleOptionsFor(viewerRole?: Role): { value: Role | "all"; label: string }[] {
+  if (viewerRole === "super_admin") {
+    return [
+      { value: "all", label: "All Roles" },
+      { value: "admin", label: "Admin" },
+      { value: "acad_head", label: "Academic Head" },
+    ];
+  }
+  if (viewerRole === "admin") {
+    return [
+      { value: "all", label: "All Roles" },
+      { value: "acad_head", label: "Academic Head" },
+    ];
+  }
+  return [{ value: "all", label: "All Roles" }];
+}
+
 const Users: React.FC = () => {
   const { user } = useAuth();
   const isSuperAdmin = user?.role === "super_admin";
   const isAdmin = user?.role === "admin";
   const canAddUsers = isSuperAdmin || isAdmin;
+  const canViewPage = isSuperAdmin || isAdmin;
 
   const { toast } = useToast();
 
   const [rows, setRows] = useState<UserRow[]>([]);
-  const [loading, setLoading] = useState<boolean>(false);
+  const [loading, setLoading] = useState(false);
 
   const [q, setQ] = useState("");
   const [roleFilter, setRoleFilter] = useState<Role | "all">("all");
@@ -91,23 +137,17 @@ const Users: React.FC = () => {
     name: "",
     username: "",
     email: "",
-    role: "admin" as Role,
+    role: (isAdmin ? "acad_head" : "admin") as Role, // super_admin → admin, admin → acad_head
     status: "active" as Status,
     password: "",
   });
-
-  useEffect(() => {
-    console.log("[Users] role:", user?.role, { isSuperAdmin, isAdmin, canAddUsers });
-  }, [user?.role]);
 
   async function fetchUsers() {
     try {
       setLoading(true);
       const res = await apiService.getUsers();
-      // tolerate either axios response or direct payload
-      const dataMaybe = Array.isArray(res) ? res : res?.data;
-      const data: UserRow[] = Array.isArray(dataMaybe) ? (dataMaybe as UserRow[]) : [];
-      setRows(data);
+      const data = Array.isArray(res) ? res : res?.data ?? [];
+      setRows(data as UserRow[]);
     } catch (err: any) {
       toast({
         title: "Failed to load users",
@@ -121,11 +161,13 @@ const Users: React.FC = () => {
 
   useEffect(() => {
     fetchUsers();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const filtered = useMemo(() => {
     const qlc = q.trim().toLowerCase();
     return rows.filter((u) => {
+      if (!canViewUser(user?.role as Role | undefined, u.role)) return false;
       if (roleFilter !== "all" && u.role !== roleFilter) return false;
       if (statusFilter !== "all" && u.status !== statusFilter) return false;
       if (!qlc) return true;
@@ -135,12 +177,10 @@ const Users: React.FC = () => {
         (u.name || "").toLowerCase().includes(qlc)
       );
     });
-  }, [q, roleFilter, statusFilter, rows]);
+  }, [q, roleFilter, statusFilter, rows, user?.role]);
 
   async function handleCreateSubmit(e?: React.FormEvent) {
     e?.preventDefault();
-
-    console.log("[Users] submit create", { canAddUsers, isAdmin, isSuperAdmin, form });
 
     if (!canAddUsers) {
       toast({
@@ -150,7 +190,7 @@ const Users: React.FC = () => {
       });
       return;
     }
-    // Permission rules
+
     if (isAdmin && form.role !== "acad_head") {
       toast({
         title: "Role restricted",
@@ -159,6 +199,7 @@ const Users: React.FC = () => {
       });
       return;
     }
+
     if (isSuperAdmin && !["admin", "acad_head"].includes(form.role)) {
       toast({
         title: "Role restricted",
@@ -168,8 +209,12 @@ const Users: React.FC = () => {
       return;
     }
 
-    if (!form.username?.trim() || !form.email?.trim()) {
-      toast({ title: "Missing fields", description: "Username and Email are required.", variant: "destructive" });
+    if (!form.username.trim() || !form.email.trim()) {
+      toast({
+        title: "Missing fields",
+        description: "Username and Email are required.",
+        variant: "destructive",
+      });
       return;
     }
 
@@ -185,24 +230,23 @@ const Users: React.FC = () => {
         password: form.password ? form.password : undefined,
       };
 
-      console.log("[Users] POST /createUser payload:", payload);
-
       const res = await apiService.createUser(payload);
-      const data = res?.data ?? res;
-      console.log("[Users] createUser response:", data);
-
       const ok =
-        data?.success === true ||
-        data?.status === "ok" ||
-        data?.status === "success" ||
-        data?.message?.toLowerCase?.().includes("created");
+        res?.success === true ||
+        res?.status === "ok" ||
+        res?.status === "success" ||
+        res?.message?.toLowerCase?.().includes?.("created");
 
-      if (!ok) throw new Error(data?.message || "Create failed");
+      if (!ok) throw new Error(res?.message || "Create failed");
 
       toast({
         title: "User created",
-        description: `${form.role === "admin" ? "Admin" : "Academic Head"} account has been added.`,
+        description:
+          form.role === "admin"
+            ? "Admin account has been added."
+            : "Academic Head account has been added.",
       });
+
       setOpenAdd(false);
       setForm({
         name: "",
@@ -214,7 +258,6 @@ const Users: React.FC = () => {
       });
       fetchUsers();
     } catch (err: any) {
-      console.error("[Users] create error:", err);
       toast({
         title: "Create failed",
         description: err?.response?.data?.message || err?.message || "Please verify inputs and try again.",
@@ -223,6 +266,15 @@ const Users: React.FC = () => {
     } finally {
       setSaving(false);
     }
+  }
+
+  if (!canViewPage) {
+    return (
+      <div className="p-6">
+        <h1 className="text-xl font-semibold">User Management</h1>
+        <p className="text-sm text-muted-foreground">You don’t have permission to view this page.</p>
+      </div>
+    );
   }
 
   return (
@@ -283,7 +335,7 @@ const Users: React.FC = () => {
                   <SelectValue placeholder="Role" />
                 </SelectTrigger>
                 <SelectContent>
-                  {ROLE_OPTIONS.map((r) => (
+                  {visibleRoleOptionsFor(user?.role as Role | undefined).map((r) => (
                     <SelectItem key={r.value} value={r.value as any}>
                       {r.label}
                     </SelectItem>
@@ -347,13 +399,19 @@ const Users: React.FC = () => {
                       <TableCell className="font-medium">{u.name || "—"}</TableCell>
                       <TableCell>{u.username}</TableCell>
                       <TableCell>{u.email}</TableCell>
-                      <TableCell>{roleBadge(u.role)}</TableCell>
-                      <TableCell>{statusBadge(u.status)}</TableCell>
-                      <TableCell>{u.last_login ? new Date(u.last_login).toLocaleString() : "—"}</TableCell>
+                      <TableCell>
+                        <RoleBadge role={u.role} />
+                      </TableCell>
+                      <TableCell>
+                        <StatusBadge status={u.status} />
+                      </TableCell>
+                      <TableCell>
+                        {u.last_login ? new Date(u.last_login).toLocaleString() : "—"}
+                      </TableCell>
                       <TableCell className="text-right">
                         <DropdownMenu>
                           <DropdownMenuTrigger asChild>
-                            <Button variant="ghost" size="icon">
+                            <Button variant="ghost" size="icon" aria-label="Actions">
                               <MoreVertical className="h-4 w-4" />
                             </Button>
                           </DropdownMenuTrigger>
@@ -404,6 +462,7 @@ const Users: React.FC = () => {
                   id="username"
                   value={form.username}
                   onChange={(e) => setForm((f) => ({ ...f, username: e.target.value }))}
+                  required
                 />
               </div>
 
@@ -414,12 +473,16 @@ const Users: React.FC = () => {
                   type="email"
                   value={form.email}
                   onChange={(e) => setForm((f) => ({ ...f, email: e.target.value }))}
+                  required
                 />
               </div>
 
               <div className="grid gap-1">
                 <Label>Role</Label>
-                <Select value={form.role} onValueChange={(v) => setForm((f) => ({ ...f, role: v as Role }))}>
+                <Select
+                  value={form.role}
+                  onValueChange={(v) => setForm((f) => ({ ...f, role: v as Role }))}
+                >
                   <SelectTrigger>
                     <SelectValue placeholder="Select Role" />
                   </SelectTrigger>
@@ -432,7 +495,10 @@ const Users: React.FC = () => {
 
               <div className="grid gap-1">
                 <Label htmlFor="status">Status</Label>
-                <Select value={form.status} onValueChange={(v) => setForm((f) => ({ ...f, status: v as Status }))}>
+                <Select
+                  value={form.status}
+                  onValueChange={(v) => setForm((f) => ({ ...f, status: v as Status }))}
+                >
                   <SelectTrigger id="status">
                     <SelectValue placeholder="Status" />
                   </SelectTrigger>
