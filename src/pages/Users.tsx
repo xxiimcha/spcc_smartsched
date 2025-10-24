@@ -144,10 +144,31 @@ const Users: React.FC = () => {
     password: "",
   });
 
-  // NEW: feedback message box state
+  // Feedback message (shown *inside* the dialog)
   const [feedback, setFeedback] = useState<{ kind: "success" | "error"; text: string } | null>(null);
 
-  // Auto-dismiss feedback after 6s
+  // Helpers to reset form/dialog
+  function defaultRoleForCreator(): Role {
+    return isAdmin ? "acad_head" : "admin";
+  }
+  function resetForm() {
+    setForm({
+      name: "",
+      username: "",
+      email: "",
+      role: defaultRoleForCreator(),
+      status: "active",
+      password: "",
+    });
+    setFeedback(null);
+    setSaving(false);
+  }
+  function handleCancel() {
+    resetForm();
+    setOpenAdd(false);
+  }
+
+  // Auto-dismiss feedback after 6s (if dialog stays open)
   useEffect(() => {
     if (!feedback) return;
     const t = setTimeout(() => setFeedback(null), 6000);
@@ -161,7 +182,6 @@ const Users: React.FC = () => {
       const data = Array.isArray(res) ? res : res?.data ?? [];
       setRows(data as UserRow[]);
     } catch (err: any) {
-      // keep toast for load errors; separate from create feedback
       toast({
         title: "Failed to load users",
         description: err?.message || "Please check your connection or backend.",
@@ -220,30 +240,31 @@ const Users: React.FC = () => {
 
   async function handleCreateSubmit(e?: React.FormEvent) {
     e?.preventDefault();
-  
+
     if (!canAddUsers) {
       showError("Only Super Admins or Admins can add users.");
       return;
     }
-  
+
     if (isAdmin && form.role !== "acad_head") {
       showError("Admins can only create Academic Head accounts.");
       return;
     }
-  
+
     if (isSuperAdmin && !["admin", "acad_head"].includes(form.role)) {
       showError("Super Admins can create Admin or Academic Head accounts only.");
       return;
     }
-  
+
     const username = form.username.trim();
     const email = form.email.trim();
-  
+
     if (!username || !email) {
       showError("Username and Email are required.");
       return;
     }
-  
+
+    // Client-side guard: username must be globally unique (case-insensitive)
     const usernameTaken = rows.some(
       (u) => String(u.username).toLowerCase() === username.toLowerCase()
     );
@@ -251,10 +272,10 @@ const Users: React.FC = () => {
       showError("Username already exists. Please choose another one.");
       return;
     }
-  
+
     try {
       setSaving(true);
-  
+
       const payload: Parameters<typeof apiService.createUser>[0] = {
         ...(form.name.trim() ? { name: form.name.trim() } : {}),
         username,
@@ -263,46 +284,51 @@ const Users: React.FC = () => {
         status: form.status as "active" | "inactive",
         password: form.password ? form.password : undefined,
       };
-  
+
+      // If you want upsert behavior on duplicate email, pass { upsert: true } as the 2nd arg.
       const res = await apiService.createUser(payload /* , { upsert: true } */);
-  
+
       const created =
         res?.success === true ||
         res?.status === "ok" ||
         res?.status === "success" ||
         res?.message?.toLowerCase?.().includes?.("created") ||
         res?.message?.toLowerCase?.().includes?.("upserted");
-  
+
       if (!created) {
+        // Wrap result to mimic axios error shape so formatBackendError can read it
         throw Object.assign(new Error(res?.message || "Create failed"), { response: { data: res } });
       }
-  
+
       showSuccess(
         form.role === "admin"
           ? "Admin account has been added."
           : "Academic Head account has been added."
       );
-  
-      setOpenAdd(false);
-      setForm({
-        name: "",
-        username: "",
-        email: "",
-        role: isAdmin ? "acad_head" : "admin",
-        status: "active",
-        password: "",
-      });
-      fetchUsers();
+
+      // Close the dialog after a short delay so the success message is visible
+      setTimeout(() => {
+        setOpenAdd(false);
+        resetForm();
+        fetchUsers();
+      }, 1200);
     } catch (err: any) {
       showError(formatBackendError(err));
     } finally {
       setSaving(false);
     }
   }
-  
+
+  // Reset form whenever dialog closes; set default role when it opens
   useEffect(() => {
-    if (openAdd) setFeedback(null);
-  }, [openAdd]);
+    if (!openAdd) {
+      resetForm();
+    } else {
+      setForm((f) => ({ ...f, role: defaultRoleForCreator() }));
+      setFeedback(null);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [openAdd, isAdmin]);
 
   if (!canViewPage) {
     return (
@@ -343,35 +369,6 @@ const Users: React.FC = () => {
           )}
         </div>
       </div>
-
-      {/* Message box */}
-      {feedback && (
-        <Alert
-          className={`mb-4 ${feedback.kind === "success" ? "border-emerald-300" : "border-red-300"}`}
-        >
-          <div className="flex items-start justify-between gap-3">
-            <div className="flex items-start gap-2">
-              {feedback.kind === "success" ? (
-                <CheckCircle2 className="h-4 w-4 mt-0.5 text-emerald-600" />
-              ) : (
-                <XCircle className="h-4 w-4 mt-0.5 text-red-600" />
-              )}
-              <div>
-                <AlertTitle className="capitalize">{feedback.kind}</AlertTitle>
-                <AlertDescription>{feedback.text}</AlertDescription>
-              </div>
-            </div>
-            <Button
-              variant="ghost"
-              size="icon"
-              onClick={() => setFeedback(null)}
-              aria-label="Dismiss"
-            >
-              <XIcon className="h-4 w-4" />
-            </Button>
-          </div>
-        </Alert>
-      )}
 
       <Card>
         <CardHeader className="pb-0">
@@ -499,7 +496,13 @@ const Users: React.FC = () => {
         </CardContent>
       </Card>
 
-      <Dialog open={openAdd} onOpenChange={setOpenAdd}>
+      <Dialog
+        open={openAdd}
+        onOpenChange={(v) => {
+          setOpenAdd(v);
+          if (!v) resetForm();
+        }}
+      >
         <DialogContent>
           <DialogHeader>
             <DialogTitle>Add User</DialogTitle>
@@ -509,6 +512,35 @@ const Users: React.FC = () => {
               <span className="font-medium">Academic Head</span> only.
             </DialogDescription>
           </DialogHeader>
+
+          {/* Inline alert inside dialog */}
+          {feedback && (
+            <Alert
+              className={`mb-3 ${feedback.kind === "success" ? "border-emerald-300" : "border-red-300"}`}
+            >
+              <div className="flex items-start justify-between gap-3">
+                <div className="flex items-start gap-2">
+                  {feedback.kind === "success" ? (
+                    <CheckCircle2 className="h-4 w-4 mt-0.5 text-emerald-600" />
+                  ) : (
+                    <XCircle className="h-4 w-4 mt-0.5 text-red-600" />
+                  )}
+                  <div>
+                    <AlertTitle className="capitalize">{feedback.kind}</AlertTitle>
+                    <AlertDescription>{feedback.text}</AlertDescription>
+                  </div>
+                </div>
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  onClick={() => setFeedback(null)}
+                  aria-label="Dismiss"
+                >
+                  <XIcon className="h-4 w-4" />
+                </Button>
+              </div>
+            </Alert>
+          )}
 
           <form onSubmit={handleCreateSubmit}>
             <div className="grid gap-3 py-2">
@@ -586,7 +618,7 @@ const Users: React.FC = () => {
             </div>
 
             <DialogFooter>
-              <Button type="button" variant="outline" onClick={() => setOpenAdd(false)} disabled={saving}>
+              <Button type="button" variant="outline" onClick={handleCancel} disabled={saving}>
                 Cancel
               </Button>
               <Button type="submit" disabled={saving || !canAddUsers}>
