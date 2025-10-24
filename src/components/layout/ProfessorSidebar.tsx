@@ -26,6 +26,17 @@ import {
 import { Separator } from "@/components/ui/separator";
 import { apiService } from "@/services/apiService";
 
+// NEW: import AlertDialog for success popup
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
+
 interface ProfessorSidebarProps {
   isOpen: boolean;
   onToggle: () => void;
@@ -68,11 +79,13 @@ const ProfessorSidebar: React.FC<ProfessorSidebarProps> = ({ isOpen, onToggle })
   const location = useLocation();
   const navigate = useNavigate();
   const { toast } = useToast();
-  // If your AuthContext exposes setUser, we use it to reflect updates immediately
   const { user, logout, setUser }: any = useAuth();
 
   const [profileOpen, setProfileOpen] = useState(false);
   const [saving, setSaving] = useState(false);
+
+  // NEW: success alert state
+  const [successOpen, setSuccessOpen] = useState(false);
 
   // Form state seeded from current user
   const [name, setName] = useState<string>(user?.name || user?.full_name || "");
@@ -83,7 +96,6 @@ const ProfessorSidebar: React.FC<ProfessorSidebarProps> = ({ isOpen, onToggle })
   const [confirmPassword, setConfirmPassword] = useState<string>("");
 
   useEffect(() => {
-    // keep dialog fields in sync if user changes due to re-login, etc.
     setName(user?.name || user?.full_name || "");
     setEmail(user?.email || "");
     setPhone(user?.phone || "");
@@ -104,7 +116,6 @@ const ProfessorSidebar: React.FC<ProfessorSidebarProps> = ({ isOpen, onToggle })
   };
 
   const handleSaveProfile = async () => {
-    // very light validation
     if (!name.trim()) {
       toast({ title: "Name is required", variant: "destructive" });
       return;
@@ -124,29 +135,16 @@ const ProfessorSidebar: React.FC<ProfessorSidebarProps> = ({ isOpen, onToggle })
 
     setSaving(true);
     try {
-      // Adjust the endpoint to match your backend. Common patterns:
-      // PUT /professors/profile  or  PUT /users/profile
-      // We send only fields that changed; for simplicity, send all (backend should ignore unchanged)
-      const payload: any = {
-        name,
-        email,
-        phone,
-        username, // often immutable; backend can ignore if not allowed
-      };
-      if (newPassword) payload.password = newPassword;
-
       const res = await apiService.updateProfessorProfile({
-        prof_id: Number(user?.prof_id ?? user?.id), // keep if your backend needs it
+        prof_id: Number(user?.prof_id ?? user?.id),
         name,
         email,
         phone,
         username,
-        password: newPassword || undefined,         // only send if set
+        password: newPassword || undefined,
       });
-      
 
       if (res?.success || res?.status === "ok") {
-        // Update local auth state if supported
         if (typeof setUser === "function") {
           setUser((prev: any) => ({
             ...prev,
@@ -157,15 +155,17 @@ const ProfessorSidebar: React.FC<ProfessorSidebarProps> = ({ isOpen, onToggle })
             username,
           }));
         }
+
+        // Keep the toast (optional)
         toast({ title: "Profile updated" });
+
+        // Close profile dialog and show success popup
         setProfileOpen(false);
         setNewPassword("");
         setConfirmPassword("");
+        setSuccessOpen(true); // <-- show the message alert
       } else {
-        const msg =
-          res?.message ||
-          res?.error ||
-          "Could not update profile. Please try again.";
+        const msg = res?.message || res?.error || "Could not update profile. Please try again.";
         toast({ title: "Update failed", description: msg, variant: "destructive" });
       }
     } catch (err: any) {
@@ -241,7 +241,7 @@ const ProfessorSidebar: React.FC<ProfessorSidebarProps> = ({ isOpen, onToggle })
             {isOpen && (
               <div className="min-w-0">
                 <p className="text-sm font-medium truncate">
-                  {user?.name || user?.username || "Professor"}
+                  {user?.name || user?.full_name || user?.username || "Professor"}
                 </p>
                 <p className="text-xs text-muted-foreground truncate">View profile</p>
               </div>
@@ -274,9 +274,7 @@ const ProfessorSidebar: React.FC<ProfessorSidebarProps> = ({ isOpen, onToggle })
           </DialogHeader>
 
           <div className="space-y-6">
-
             <Separator />
-
             <div className="grid grid-cols-1 gap-4">
               <div className="grid gap-2">
                 <Label htmlFor="name">Full name</Label>
@@ -315,8 +313,6 @@ const ProfessorSidebar: React.FC<ProfessorSidebarProps> = ({ isOpen, onToggle })
                   id="username"
                   value={username}
                   onChange={(e) => setUsername(e.target.value)}
-                  // If username shouldn't be editable, disable and remove onChange
-                  // disabled
                 />
               </div>
 
@@ -356,6 +352,23 @@ const ProfessorSidebar: React.FC<ProfessorSidebarProps> = ({ isOpen, onToggle })
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      {/* Success Alert Popup */}
+      <AlertDialog open={successOpen} onOpenChange={setSuccessOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Profile updated</AlertDialogTitle>
+            <AlertDialogDescription>
+              Your account information was saved successfully.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogAction onClick={() => setSuccessOpen(false)}>
+              OK
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </>
   );
 };
