@@ -96,6 +96,7 @@ function StatusBadge({ status }: { status: Status }) {
   );
 }
 
+const stripDigits = (s: string) => s.replace(/[0-9]/g, "");
 function canViewUser(viewerRole?: Role, targetRole?: Role) {
   if (!viewerRole || !targetRole) return false;
   if (viewerRole === "super_admin") return targetRole === "admin" || targetRole === "acad_head";
@@ -730,13 +731,23 @@ const Users: React.FC = () => {
           )}
 
           <form onSubmit={handleCreateSubmit}>
-            <div className="grid gap-3 py-2">
+            <div className="grid gap-3 py-2">-
               <div className="grid gap-1">
                 <Label htmlFor="name">Full Name (optional)</Label>
                 <Input
                   id="name"
                   value={form.name}
-                  onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))}
+                  inputMode="text"
+                  pattern="^[^\d]*$"
+                  title="Numbers are not allowed in the name."
+                  onChange={(e) =>
+                    setForm((f) => ({ ...f, name: stripDigits(e.target.value) }))
+                  }
+                  onPaste={(e) => {
+                    e.preventDefault();
+                    const text = e.clipboardData.getData("text") || "";
+                    setForm((f) => ({ ...f, name: stripDigits(text) }));
+                  }}
                 />
               </div>
 
