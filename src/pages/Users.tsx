@@ -8,6 +8,7 @@ import {
   CheckCircle2,
   XCircle,
   Loader2,
+  X as XIcon,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -48,6 +49,7 @@ import { Label } from "@/components/ui/label";
 import { apiService } from "@/services/apiService";
 import { useToast } from "@/components/ui/use-toast";
 import { useAuth } from "@/contexts/AuthContext";
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 
 type Role = "super_admin" | "admin" | "acad_head" | "professor";
 type Status = "active" | "inactive";
@@ -142,6 +144,16 @@ const Users: React.FC = () => {
     password: "",
   });
 
+  // NEW: feedback message box state
+  const [feedback, setFeedback] = useState<{ kind: "success" | "error"; text: string } | null>(null);
+
+  // Auto-dismiss feedback after 6s
+  useEffect(() => {
+    if (!feedback) return;
+    const t = setTimeout(() => setFeedback(null), 6000);
+    return () => clearTimeout(t);
+  }, [feedback]);
+
   async function fetchUsers() {
     try {
       setLoading(true);
@@ -149,6 +161,7 @@ const Users: React.FC = () => {
       const data = Array.isArray(res) ? res : res?.data ?? [];
       setRows(data as UserRow[]);
     } catch (err: any) {
+      // keep toast for load errors; separate from create feedback
       toast({
         title: "Failed to load users",
         description: err?.message || "Please check your connection or backend.",
@@ -179,74 +192,97 @@ const Users: React.FC = () => {
     });
   }, [q, roleFilter, statusFilter, rows, user?.role]);
 
+  function showSuccess(text: string) {
+    setFeedback({ kind: "success", text });
+  }
+  function showError(text: string) {
+    setFeedback({ kind: "error", text });
+  }
+
+  function formatBackendError(err: any): string {
+    const msg =
+      err?.response?.data?.message ||
+      err?.message ||
+      "Please verify inputs and try again.";
+
+    const eu = err?.response?.data?.existing_user;
+    if (eu && typeof eu === "object") {
+      const parts: string[] = [];
+      if (eu.username) parts.push(String(eu.username));
+      if (eu.role) parts.push(`(${String(eu.role)})`);
+      const who = parts.length ? parts.join(" ") : "";
+      const email = eu.email ? ` – ${String(eu.email)}` : "";
+      const id = eu.id ? ` • ID ${String(eu.id)}` : "";
+      return `${msg}. Existing: ${who}${email}${id}`;
+    }
+    return msg;
+  }
+
   async function handleCreateSubmit(e?: React.FormEvent) {
     e?.preventDefault();
-
+  
     if (!canAddUsers) {
-      toast({
-        title: "Not allowed",
-        description: "Only Super Admins or Admins can add users.",
-        variant: "destructive",
-      });
+      showError("Only Super Admins or Admins can add users.");
       return;
     }
-
+  
     if (isAdmin && form.role !== "acad_head") {
-      toast({
-        title: "Role restricted",
-        description: "Admins can only create Academic Head accounts.",
-        variant: "destructive",
-      });
+      showError("Admins can only create Academic Head accounts.");
       return;
     }
-
+  
     if (isSuperAdmin && !["admin", "acad_head"].includes(form.role)) {
-      toast({
-        title: "Role restricted",
-        description: "Super Admins can create Admin or Academic Head accounts only.",
-        variant: "destructive",
-      });
+      showError("Super Admins can create Admin or Academic Head accounts only.");
       return;
     }
-
-    if (!form.username.trim() || !form.email.trim()) {
-      toast({
-        title: "Missing fields",
-        description: "Username and Email are required.",
-        variant: "destructive",
-      });
+  
+    const username = form.username.trim();
+    const email = form.email.trim();
+  
+    if (!username || !email) {
+      showError("Username and Email are required.");
       return;
     }
-
+  
+    const usernameTaken = rows.some(
+      (u) => String(u.username).toLowerCase() === username.toLowerCase()
+    );
+    if (usernameTaken) {
+      showError("Username already exists. Please choose another one.");
+      return;
+    }
+  
     try {
       setSaving(true);
-
+  
       const payload: Parameters<typeof apiService.createUser>[0] = {
         ...(form.name.trim() ? { name: form.name.trim() } : {}),
-        username: form.username.trim(),
-        email: form.email.trim(),
+        username,
+        email,
         role: form.role as "admin" | "acad_head",
         status: form.status as "active" | "inactive",
         password: form.password ? form.password : undefined,
       };
-
-      const res = await apiService.createUser(payload);
-      const ok =
+  
+      const res = await apiService.createUser(payload /* , { upsert: true } */);
+  
+      const created =
         res?.success === true ||
         res?.status === "ok" ||
         res?.status === "success" ||
-        res?.message?.toLowerCase?.().includes?.("created");
-
-      if (!ok) throw new Error(res?.message || "Create failed");
-
-      toast({
-        title: "User created",
-        description:
-          form.role === "admin"
-            ? "Admin account has been added."
-            : "Academic Head account has been added.",
-      });
-
+        res?.message?.toLowerCase?.().includes?.("created") ||
+        res?.message?.toLowerCase?.().includes?.("upserted");
+  
+      if (!created) {
+        throw Object.assign(new Error(res?.message || "Create failed"), { response: { data: res } });
+      }
+  
+      showSuccess(
+        form.role === "admin"
+          ? "Admin account has been added."
+          : "Academic Head account has been added."
+      );
+  
       setOpenAdd(false);
       setForm({
         name: "",
@@ -258,15 +294,15 @@ const Users: React.FC = () => {
       });
       fetchUsers();
     } catch (err: any) {
-      toast({
-        title: "Create failed",
-        description: err?.response?.data?.message || err?.message || "Please verify inputs and try again.",
-        variant: "destructive",
-      });
+      showError(formatBackendError(err));
     } finally {
       setSaving(false);
     }
   }
+  
+  useEffect(() => {
+    if (openAdd) setFeedback(null);
+  }, [openAdd]);
 
   if (!canViewPage) {
     return (
@@ -307,6 +343,35 @@ const Users: React.FC = () => {
           )}
         </div>
       </div>
+
+      {/* Message box */}
+      {feedback && (
+        <Alert
+          className={`mb-4 ${feedback.kind === "success" ? "border-emerald-300" : "border-red-300"}`}
+        >
+          <div className="flex items-start justify-between gap-3">
+            <div className="flex items-start gap-2">
+              {feedback.kind === "success" ? (
+                <CheckCircle2 className="h-4 w-4 mt-0.5 text-emerald-600" />
+              ) : (
+                <XCircle className="h-4 w-4 mt-0.5 text-red-600" />
+              )}
+              <div>
+                <AlertTitle className="capitalize">{feedback.kind}</AlertTitle>
+                <AlertDescription>{feedback.text}</AlertDescription>
+              </div>
+            </div>
+            <Button
+              variant="ghost"
+              size="icon"
+              onClick={() => setFeedback(null)}
+              aria-label="Dismiss"
+            >
+              <XIcon className="h-4 w-4" />
+            </Button>
+          </div>
+        </Alert>
+      )}
 
       <Card>
         <CardHeader className="pb-0">
