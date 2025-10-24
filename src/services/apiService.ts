@@ -1,3 +1,4 @@
+// src/services/apiService.ts
 import axios, { AxiosResponse } from "axios";
 
 const API_BASE = import.meta.env.VITE_API_BASE || "https://spcc-scheduler.site";
@@ -10,7 +11,10 @@ const apiClient = axios.create({
 
 apiClient.interceptors.request.use(
   (config) => {
-    console.log(`API Request: ${config.method?.toUpperCase()} ${config.baseURL}${config.url}`);
+    console.log(
+      `API Request: ${config.method?.toUpperCase()} ${config.baseURL}${config.url}`,
+      { headers: config.headers }
+    );
     return config;
   },
   (error) => {
@@ -25,10 +29,24 @@ apiClient.interceptors.response.use(
     return response;
   },
   (error) => {
-    console.error("API Response Error:", error.response?.status, error.response?.data || error.message);
+    console.error(
+      "API Response Error:",
+      error.response?.status,
+      error.response?.data || error.message
+    );
     return Promise.reject(error);
   }
 );
+
+// Call this after login or whenever the user's role changes
+export type RoleString = "super_admin" | "admin" | "acad_head" | "professor";
+export function setApiUserRole(role?: RoleString) {
+  if (role) {
+    apiClient.defaults.headers.common["X-User-Role"] = role;
+  } else {
+    delete apiClient.defaults.headers.common["X-User-Role"];
+  }
+}
 
 export interface ApiResponse<T = any> {
   success?: boolean;
@@ -314,12 +332,11 @@ class ApiService {
     return { ...response, data: rows };
   }
 
-  // Single user (optional helper for edit forms)
   async getUser(id: number | string): Promise<ApiResponse<any>> {
     return this.makeRequest("GET", `/users.php?id=${id}`);
   }
 
-  // Modified: supports upsert + acting role header
+  // Create (supports ?upsert=1) and sends X-User-Role header
   async createUser(
     payload: {
       name?: string;
@@ -337,7 +354,7 @@ class ApiService {
     });
   }
 
-  // NEW: update user (PUT /users.php?id=XX)
+  // Update (PUT /users.php?id=XX)
   async updateUser(
     id: number | string,
     payload: UpdateUserPayload,
@@ -348,7 +365,7 @@ class ApiService {
     });
   }
 
-  // NEW: toggle active/inactive
+  // Toggle status convenience
   async toggleUserStatus(
     id: number | string,
     status: "active" | "inactive",
@@ -357,7 +374,7 @@ class ApiService {
     return this.updateUser(id, { status }, opts);
   }
 
-  // NEW: reset password
+  // Reset password convenience
   async resetUserPassword(
     id: number | string,
     opts?: { actingRole?: ActingRole }
@@ -480,7 +497,12 @@ class ApiService {
 
   // --- Schedules ------------------------------------------------------------
 
-  async getSchedules(filters?: { school_year?: string; semester?: string; professor_id?: number | string; _t?: number }): Promise<ApiResponse<Schedule[]>> {
+  async getSchedules(filters?: {
+    school_year?: string;
+    semester?: string;
+    professor_id?: number | string;
+    _t?: number;
+  }): Promise<ApiResponse<Schedule[]>> {
     const qp = new URLSearchParams();
     if (filters?.school_year) qp.append("school_year", filters.school_year);
     if (filters?.semester) qp.append("semester", filters.semester);
@@ -493,25 +515,49 @@ class ApiService {
 
   async createSchedule(schedule: Omit<Schedule, "schedule_id">): Promise<ApiResponse<Schedule>> {
     const result = await this.makeRequest<Schedule>("POST", "/schedule.php", schedule);
-    if (result.success) { try { await this.syncToFirebase(); } catch (e) { console.warn("Failed to sync to Firebase after schedule creation:", e); } }
+    if (result.success) {
+      try {
+        await this.syncToFirebase();
+      } catch (e) {
+        console.warn("Failed to sync to Firebase after schedule creation:", e);
+      }
+    }
     return result;
   }
 
   async updateSchedule(id: number, schedule: Partial<Schedule>): Promise<ApiResponse<Schedule>> {
     const result = await this.makeRequest<Schedule>("PUT", `/schedule.php?id=${id}`, schedule);
-    if (result.success) { try { await this.syncToFirebase(); } catch (e) { console.warn("Failed to sync to Firebase after schedule update:", e); } }
+    if (result.success) {
+      try {
+        await this.syncToFirebase();
+      } catch (e) {
+        console.warn("Failed to sync to Firebase after schedule update:", e);
+      }
+    }
     return result;
   }
 
   async deleteSchedule(id: number | string): Promise<ApiResponse> {
     const result = await this.makeRequest("DELETE", `/schedule.php?id=${id}`);
-    if (result.success) { try { await this.syncToFirebase(); } catch (e) { console.warn("Failed to sync to Firebase after schedule deletion:", e); } }
+    if (result.success) {
+      try {
+        await this.syncToFirebase();
+      } catch (e) {
+        console.warn("Failed to sync to Firebase after schedule deletion:", e);
+      }
+    }
     return result;
   }
 
   async deleteSchedulesBulk(ids: number[]): Promise<ApiResponse<BulkDeleteResult>> {
     const result = await this.makeRequest<BulkDeleteResult>("DELETE", "/schedule.php", { ids });
-    if (result.success) { try { await this.syncToFirebase(); } catch (e) { console.warn("Failed to sync to Firebase after bulk delete:", e); } }
+    if (result.success) {
+      try {
+        await this.syncToFirebase();
+      } catch (e) {
+        console.warn("Failed to sync to Firebase after bulk delete:", e);
+      }
+    }
     return result;
   }
 
@@ -522,11 +568,20 @@ class ApiService {
     semester?: string;
   }): Promise<ApiResponse<BulkDeleteResult>> {
     const result = await this.makeRequest<BulkDeleteResult>("DELETE", "/schedule.php", payload);
-    if (result.success) { try { await this.syncToFirebase(); } catch (e) { console.warn("Failed to sync to Firebase after section bulk delete:", e); } }
+    if (result.success) {
+      try {
+        await this.syncToFirebase();
+      } catch (e) {
+        console.warn("Failed to sync to Firebase after section bulk delete:", e);
+      }
+    }
     return result;
   }
 
-  async updateScheduleProfessor(scheduleId: number | string, professorId: number | string): Promise<ApiResponse> {
+  async updateScheduleProfessor(
+    scheduleId: number | string,
+    professorId: number | string
+  ): Promise<ApiResponse> {
     const id = /^\d+$/.test(String(scheduleId)) ? Number(scheduleId) : scheduleId;
     return this.makeRequest("PUT", `/schedule.php?id=${id}`, { prof_id: Number(professorId) });
   }
@@ -561,26 +616,42 @@ class ApiService {
 
   // --- School Heads ---------------------------------------------------------
 
-  async getSchoolHeads(): Promise<ApiResponse> { return this.makeRequest("GET", "/acad_head.php"); }
-  async createSchoolHead(data: any): Promise<ApiResponse> { return this.makeRequest("POST", "/acad_head.php", data); }
-  async updateSchoolHead(id: number, data: any): Promise<ApiResponse> { return this.makeRequest("PUT", `/acad_head.php?id=${id}`, data); }
-  async deleteSchoolHead(id: number): Promise<ApiResponse> { return this.makeRequest("DELETE", `/acad_head.php?id=${id}`); }
+  async getSchoolHeads(): Promise<ApiResponse> {
+    return this.makeRequest("GET", "/acad_head.php");
+  }
+  async createSchoolHead(data: any): Promise<ApiResponse> {
+    return this.makeRequest("POST", "/acad_head.php", data);
+  }
+  async updateSchoolHead(id: number, data: any): Promise<ApiResponse> {
+    return this.makeRequest("PUT", `/acad_head.php?id=${id}`, data);
+  }
+  async deleteSchoolHead(id: number): Promise<ApiResponse> {
+    return this.makeRequest("DELETE", `/acad_head.php?id=${id}`);
+  }
 
   // --- Dashboard ------------------------------------------------------------
 
   async getDashboardActivities(): Promise<ApiResponse<ActivityDTO[]>> {
     const base = await this.makeRequest<any>("GET", "/dashboard_activities.php");
-    const raw = (Array.isArray(base.data?.data) && base.data.data) || (Array.isArray(base.data) && base.data) || [];
+    const raw =
+      (Array.isArray(base.data?.data) && base.data.data) ||
+      (Array.isArray(base.data) && base.data) ||
+      [];
     const mapped: ActivityDTO[] = raw.map((r: any) => this.mapActivityRow(r));
     mapped.sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
     return { ...base, data: mapped };
   }
 
-  async getDashboardMetrics(): Promise<ApiResponse> { return this.makeRequest("GET", "/dashboard_metrics.php"); }
+  async getDashboardMetrics(): Promise<ApiResponse> {
+    return this.makeRequest("GET", "/dashboard_metrics.php");
+  }
 
   async getDashboardWorkload(): Promise<ApiResponse<WorkloadAlertDTO[]>> {
     const base = await this.makeRequest<any>("GET", "/dashboard_workload.php");
-    const raw = (Array.isArray(base.data?.data) && base.data.data) || (Array.isArray(base.data) && base.data) || [];
+    const raw =
+      (Array.isArray(base.data?.data) && base.data.data) ||
+      (Array.isArray(base.data) && base.data) ||
+      [];
     const mapped: WorkloadAlertDTO[] = raw.map((w: any) => this.mapWorkloadAlertRow(w));
     return { ...base, data: mapped };
   }
@@ -608,12 +679,21 @@ class ApiService {
           error: error.response?.data?.error || error.message,
         };
       }
-      return { success: false, status: "error", message: "An unexpected error occurred", error: String(error) };
+      return {
+        success: false,
+        status: "error",
+        message: "An unexpected error occurred",
+        error: String(error),
+      };
     }
   }
 
-  async syncToFirebase(): Promise<ApiResponse> { return this.makeRequest("GET", "/sync_schedules_only.php"); }
-  async manualSyncToFirebase(): Promise<ApiResponse> { return this.makeRequest("GET", "/manual_sync.php"); }
+  async syncToFirebase(): Promise<ApiResponse> {
+    return this.makeRequest("GET", "/sync_schedules_only.php");
+  }
+  async manualSyncToFirebase(): Promise<ApiResponse> {
+    return this.makeRequest("GET", "/manual_sync.php");
+  }
 
   async analyzeWorkload(schoolYear: string, semester: string): Promise<ApiResponse> {
     return this.makeRequest("POST", "/workload_balancer.php", {
@@ -623,7 +703,11 @@ class ApiService {
     });
   }
 
-  async balanceWorkload(schoolYear: string, semester: string, options: any = {}): Promise<ApiResponse> {
+  async balanceWorkload(
+    schoolYear: string,
+    semester: string,
+    options: any = {}
+  ): Promise<ApiResponse> {
     return this.makeRequest("POST", "/workload_balancer.php", {
       action: "balance",
       school_year: schoolYear,
@@ -632,7 +716,10 @@ class ApiService {
     });
   }
 
-  async getWorkloadRecommendations(schoolYear: string, semester: string): Promise<ApiResponse> {
+  async getWorkloadRecommendations(
+    schoolYear: string,
+    semester: string
+  ): Promise<ApiResponse> {
     return this.makeRequest("POST", "/workload_balancer.php", {
       action: "recommendations",
       school_year: schoolYear,
@@ -642,7 +729,13 @@ class ApiService {
 
   async autoGenerateSchedules(payload: AutoGenPayload): Promise<ApiResponse<AutoGenResult>> {
     const result = await this.makeRequest<AutoGenResult>("POST", "/schedule_autogen.php", payload);
-    if (result.success) { try { await this.syncToFirebase(); } catch (error) { console.warn("Failed to sync to Firebase after auto-generate:", error); } }
+    if (result.success) {
+      try {
+        await this.syncToFirebase();
+      } catch (error) {
+        console.warn("Failed to sync to Firebase after auto-generate:", error);
+      }
+    }
     return result;
   }
 

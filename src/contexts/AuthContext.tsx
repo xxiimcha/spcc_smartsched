@@ -1,4 +1,6 @@
+// src/contexts/AuthContext.tsx
 import React, { createContext, useContext, useEffect, useMemo, useState } from "react";
+import { setApiUserRole } from "@/services/apiService";
 
 export type Role = "admin" | "acad_head" | "super_admin" | "professor";
 
@@ -33,7 +35,6 @@ function readStoredUser(): User | null {
     const role = localStorage.getItem("role");
     if (!raw || !role) return null;
     const parsed = JSON.parse(raw);
-    // trust persisted shape; ensure role matches storage
     return { ...parsed, role } as User;
   } catch {
     return null;
@@ -43,12 +44,21 @@ function readStoredUser(): User | null {
 export const AuthProvider: React.FC<React.PropsWithChildren> = ({ children }) => {
   const [user, setUser] = useState<User | null>(() => readStoredUser());
 
+  // Keep state in sync across tabs and keep X-User-Role header correct
   useEffect(() => {
-    // keep state in sync if another tab logs out
-    const onStorage = () => setUser(readStoredUser());
+    const onStorage = () => {
+      const u = readStoredUser();
+      setUser(u);
+      setApiUserRole(u?.role); // set/clear header if user changed in another tab
+    };
     window.addEventListener("storage", onStorage);
     return () => window.removeEventListener("storage", onStorage);
   }, []);
+
+  // Ensure header is set on initial mount (rehydrated user)
+  useEffect(() => {
+    setApiUserRole(user?.role);
+  }, []); // run once on mount
 
   const login = (u: User) => {
     setUser(u);
@@ -56,6 +66,9 @@ export const AuthProvider: React.FC<React.PropsWithChildren> = ({ children }) =>
     localStorage.setItem("role", u.role);
     if (u.token) localStorage.setItem("authToken", u.token);
     else localStorage.removeItem("authToken");
+
+    // IMPORTANT: set X-User-Role for all subsequent requests
+    setApiUserRole(u.role);
   };
 
   const logout = () => {
@@ -63,6 +76,9 @@ export const AuthProvider: React.FC<React.PropsWithChildren> = ({ children }) =>
     localStorage.removeItem("user");
     localStorage.removeItem("role");
     localStorage.removeItem("authToken");
+
+    // IMPORTANT: remove X-User-Role header
+    setApiUserRole(undefined);
   };
 
   const isAuthenticated = !!user;
