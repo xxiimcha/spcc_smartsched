@@ -171,6 +171,17 @@ export interface WorkloadAlertDTO {
   alert_level: "high" | "max";
 }
 
+/* ---------------- Users helpers (NEW) ---------------- */
+export type ActingRole = "super_admin" | "admin";
+export interface UpdateUserPayload {
+  name?: string;
+  email?: string;
+  role?: "admin" | "acad_head";
+  status?: "active" | "inactive";
+  reset_password?: boolean; // special flag to trigger backend reset
+}
+/* ---------------------------------------------------- */
+
 function coerceArray<T = any>(v: any): T[] {
   if (Array.isArray(v)) return v as T[];
   if (typeof v === "string") {
@@ -291,7 +302,7 @@ class ApiService {
     const response = await this.makeRequest<any>("GET", "/users.php");
     const rows = Array.isArray(response.data)
       ? response.data.map((r) => ({
-          id: Number(r.id ?? r.user_id),   // <-- FIX HERE
+          id: Number(r.id ?? r.user_id),
           username: String(r.username ?? ""),
           email: String(r.email ?? ""),
           name: String(r.name ?? ""),
@@ -303,18 +314,55 @@ class ApiService {
     return { ...response, data: rows };
   }
 
+  // Single user (optional helper for edit forms)
+  async getUser(id: number | string): Promise<ApiResponse<any>> {
+    return this.makeRequest("GET", `/users.php?id=${id}`);
+  }
 
-  async createUser(payload: {
-    name?: string;
-    username: string;
-    email: string;
-    role: "admin" | "acad_head";
-    status?: "active" | "inactive";
-    password?: string;
-  }): Promise<ApiResponse> {
-    return this.makeRequest("POST", "/users.php", payload, {
-      headers: { "X-User-Role": "super_admin" },
+  // Modified: supports upsert + acting role header
+  async createUser(
+    payload: {
+      name?: string;
+      username: string;
+      email: string;
+      role: "admin" | "acad_head";
+      status?: "active" | "inactive";
+      password?: string;
+    },
+    opts?: { upsert?: boolean; actingRole?: ActingRole }
+  ): Promise<ApiResponse> {
+    const url = `/users.php${opts?.upsert ? "?upsert=1" : ""}`;
+    return this.makeRequest("POST", url, payload, {
+      headers: { "X-User-Role": opts?.actingRole ?? "super_admin" },
     });
+  }
+
+  // NEW: update user (PUT /users.php?id=XX)
+  async updateUser(
+    id: number | string,
+    payload: UpdateUserPayload,
+    opts?: { actingRole?: ActingRole }
+  ): Promise<ApiResponse> {
+    return this.makeRequest("PUT", `/users.php?id=${id}`, payload, {
+      headers: { "X-User-Role": opts?.actingRole ?? "super_admin" },
+    });
+  }
+
+  // NEW: toggle active/inactive
+  async toggleUserStatus(
+    id: number | string,
+    status: "active" | "inactive",
+    opts?: { actingRole?: ActingRole }
+  ): Promise<ApiResponse> {
+    return this.updateUser(id, { status }, opts);
+  }
+
+  // NEW: reset password
+  async resetUserPassword(
+    id: number | string,
+    opts?: { actingRole?: ActingRole }
+  ): Promise<ApiResponse> {
+    return this.updateUser(id, { reset_password: true }, opts);
   }
 
   // --- Subjects CRUD --------------------------------------------------------
