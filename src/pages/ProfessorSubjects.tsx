@@ -10,6 +10,7 @@ import { Separator } from "@/components/ui/separator";
 import {
   AlertDialog,
   AlertDialogAction,
+  AlertDialogCancel,
   AlertDialogContent,
   AlertDialogDescription,
   AlertDialogFooter,
@@ -53,6 +54,10 @@ const ProfessorSubjects: React.FC = () => {
   // success dialog state
   const [successOpen, setSuccessOpen] = useState(false);
   const [savedCount, setSavedCount] = useState(0);
+
+  // clear confirmation dialog
+  const [clearOpen, setClearOpen] = useState(false);
+  const [clearing, setClearing] = useState(false);
 
   // derive unique strand options from loaded subjects
   const uniqueStrands = useMemo(() => {
@@ -176,6 +181,51 @@ const ProfessorSubjects: React.FC = () => {
     }
   };
 
+  // ===== NEW: Clear Preferences =====
+  const handleClearPreferences = async () => {
+    if (!professorId) return;
+    setClearing(true);
+    try {
+      // Prefer a dedicated clear endpoint if present
+      const hasClear =
+        typeof (apiService as any).clearProfessorSubjectPreferences === "function";
+
+      const res = hasClear
+        ? await (apiService as any).clearProfessorSubjectPreferences(professorId)
+        : await apiService.saveProfessorSubjectPreferences(professorId, []); // fallback: empty selection
+
+      const ok =
+        res?.success === true ||
+        res?.status === "ok" ||
+        res?.message?.toLowerCase?.().includes?.("cleared") ||
+        res?.message?.toLowerCase?.().includes?.("deleted") ||
+        res?.message?.toLowerCase?.().includes?.("updated");
+
+      if (!ok) {
+        throw new Error(res?.message || "Unable to clear preferences");
+      }
+
+      setPrefs({});
+      setSelectedToast();
+      setClearOpen(false);
+    } catch (e: any) {
+      toast({
+        title: "Clear failed",
+        description: e?.message || "Please try again.",
+        variant: "destructive",
+      });
+    } finally {
+      setClearing(false);
+    }
+  };
+
+  const setSelectedToast = () => {
+    toast({
+      title: "Preferences cleared",
+      description: "All saved subject preferences have been removed.",
+    });
+  };
+
   return (
     <div className="p-6">
       {/* Header */}
@@ -191,6 +241,15 @@ const ProfessorSubjects: React.FC = () => {
         </div>
         <div className="flex items-center gap-2">
           <Button variant="outline" onClick={clearFilters}>Reset Filters</Button>
+          <Button
+            variant="destructive"
+            onClick={() => setClearOpen(true)}
+            disabled={clearing}
+            title="Remove all saved subject preferences"
+          >
+            {clearing ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : null}
+            {clearing ? "Clearing..." : "Clear Preferences"}
+          </Button>
           <Button onClick={handleSave} disabled={saving || selectedCount === 0}>
             {saving ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <CheckCircle2 className="h-4 w-4 mr-2" />}
             {saving ? "Saving..." : `Confirm (${selectedCount})`}
@@ -318,7 +377,6 @@ const ProfessorSubjects: React.FC = () => {
                               side="top"
                               align="end"
                               sideOffset={4}
-                              // Menu width tracks trigger width, prevent viewport overflow
                               className="w-[var(--radix-select-trigger-width)] max-h-64 overflow-auto"
                             >
                               <SelectItem value="beginner">Beginner</SelectItem>
@@ -355,6 +413,25 @@ const ProfessorSubjects: React.FC = () => {
           <AlertDialogFooter>
             <AlertDialogAction onClick={() => setSuccessOpen(false)}>
               OK
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      {/* Clear Confirmation */}
+      <AlertDialog open={clearOpen} onOpenChange={setClearOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Clear all preferences?</AlertDialogTitle>
+            <AlertDialogDescription>
+              This will remove all saved subject preferences from your account. You can set them again later.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={clearing}>Cancel</AlertDialogCancel>
+            <AlertDialogAction onClick={handleClearPreferences} disabled={clearing}>
+              {clearing ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : null}
+              {clearing ? "Clearing..." : "Clear"}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
