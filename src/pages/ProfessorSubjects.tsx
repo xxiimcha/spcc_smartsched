@@ -7,6 +7,15 @@ import { Card, CardHeader, CardContent, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Separator } from "@/components/ui/separator";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import { useToast } from "@/components/ui/use-toast";
 import { useAuth } from "@/contexts/AuthContext";
 import { apiService, SubjectDTO } from "@/services/apiService";
@@ -40,6 +49,10 @@ const ProfessorSubjects: React.FC = () => {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  // success dialog state
+  const [successOpen, setSuccessOpen] = useState(false);
+  const [savedCount, setSavedCount] = useState(0);
 
   // derive unique strand options from loaded subjects
   const uniqueStrands = useMemo(() => {
@@ -150,6 +163,8 @@ const ProfessorSubjects: React.FC = () => {
     try {
       const res = await apiService.saveProfessorSubjectPreferences(professorId, selections);
       if (res.success) {
+        setSavedCount(selections.length);
+        setSuccessOpen(true); // OPEN SUCCESS MODAL
         toast({ title: "Preferences saved", description: "Your subject preferences have been updated." });
       } else {
         toast({ title: "Save failed", description: res.message || "Please try again.", variant: "destructive" });
@@ -282,18 +297,30 @@ const ProfessorSubjects: React.FC = () => {
                         {subj.strand && <Badge variant="outline">{subj.strand}</Badge>}
                       </div>
 
-                      <div className="flex items-center justify-between">
+                      <div className="flex items-center justify-between gap-3">
                         <span className="text-sm text-muted-foreground">Proficiency</span>
-                        <div data-stop>
+
+                        {/* Wrap to control width & allow shrinking on small cards */}
+                        <div data-stop className="min-w-0 w-full sm:w-auto">
                           <Select
                             value={level ?? ""}
                             onValueChange={(v) => handleLevelChange(subj.id, v as Proficiency)}
                             disabled={!isSelected}
                           >
-                            <SelectTrigger className="w-44">
+                            {/* Responsive trigger: full width on small screens, fixed on >= sm */}
+                            <SelectTrigger className="w-full sm:w-44 max-w-full">
                               <SelectValue placeholder="Not selected" />
                             </SelectTrigger>
-                            <SelectContent>
+
+                            {/* Popper + collision handling so it won't be clipped by the card */}
+                            <SelectContent
+                              position="popper"
+                              side="top"
+                              align="end"
+                              sideOffset={4}
+                              // Menu width tracks trigger width, prevent viewport overflow
+                              className="w-[var(--radix-select-trigger-width)] max-h-64 overflow-auto"
+                            >
                               <SelectItem value="beginner">Beginner</SelectItem>
                               <SelectItem value="intermediate">Intermediate</SelectItem>
                               <SelectItem value="advanced">Advanced</SelectItem>
@@ -315,6 +342,23 @@ const ProfessorSubjects: React.FC = () => {
           )}
         </div>
       </div>
+
+      {/* Success Message Box */}
+      <AlertDialog open={successOpen} onOpenChange={setSuccessOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Preferences saved</AlertDialogTitle>
+            <AlertDialogDescription>
+              {savedCount} {savedCount === 1 ? "preference has" : "preferences have"} been successfully updated for your account.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogAction onClick={() => setSuccessOpen(false)}>
+              OK
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 };

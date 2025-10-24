@@ -198,6 +198,15 @@ export interface UpdateUserPayload {
   status?: "active" | "inactive";
   reset_password?: boolean; // special flag to trigger backend reset
 }
+
+export interface ProfessorProfilePayload {
+  prof_id?: number;          // optional if your backend infers from session/JWT
+  name?: string;
+  email?: string;
+  phone?: string;
+  username?: string;         // set editable=false in UI if not allowed
+  password?: string;         // send only when changing
+}
 /* ---------------------------------------------------- */
 
 function coerceArray<T = any>(v: any): T[] {
@@ -415,6 +424,19 @@ class ApiService {
       prof_id: Number(profId),
       preferences,
     });
+  }
+  
+  async updateProfessorProfile(
+    payload: ProfessorProfilePayload
+  ): Promise<ApiResponse> {
+    // Point to your PHP endpoint (see file below)
+    return this.makeRequest("PUT", "/professor_update_profile.php", payload);
+  }
+  
+  // Optional: fetch current profile (if you’ll show a view dialog)
+  async getProfessorProfile(profId?: number | string): Promise<ApiResponse> {
+    const qs = profId ? `?prof_id=${profId}` : "";
+    return this.makeRequest("GET", `/professor_update_profile.php${qs}`);
   }
 
   async getListOfSubjects(professorId?: number | string): Promise<ApiResponse> {
