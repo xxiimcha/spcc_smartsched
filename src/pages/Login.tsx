@@ -13,24 +13,40 @@ const normalizeRole = (r: RawRole): Role => {
   if (v === "admin") return "admin";
   if (v === "acad_head" || v === "school_head" || v === "acad-head") return "acad_head";
   if (v === "professor" || v === "professors") return "professor";
-  // default to lowest-priv route; adjust if you prefer a hard error
   return "professor";
 };
 
+interface AuthUserPayload {
+  id: string | number;
+  username: string;
+  role: RawRole;
+  email?: string;
+  name?: string;
+  token?: string | null;
+  profile?: any;
+}
+
 interface AuthResponse {
   success: boolean;
-  message?: string;
+  message?: string; // some endpoints use "message"
+  error?: string;   // our auth.php uses "error" on failures
+  code?: string;    // e.g., "account_status_denied"
+  status?: string;  // e.g., "inactive"
   token?: string | null;
-  user?: {
-    id: string | number;
-    username: string;
-    role: RawRole;
-    email?: string;
-    name?: string;
-    token?: string | null; // some APIs put token here
-    profile?: any;
-  };
+  user?: AuthUserPayload;
 }
+
+const getErrorMessage = (err: any): string => {
+  // Prefer server-provided message
+  const data = err?.response?.data;
+  if (data) {
+    if (typeof data === "string") return data;
+    if (data.error) return data.error;
+    if (data.message) return data.message;
+  }
+  // Network / unknown
+  return err?.message || "Unable to sign in.";
+};
 
 const Login: React.FC = () => {
   const [username, setUsername] = useState("");
@@ -55,7 +71,7 @@ const Login: React.FC = () => {
       setIsError(false);
       setMessage("");
     }
-  }, [username, password]); // reset message on input change
+  }, [username, password]);
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
     if ("getModifierState" in e) {
@@ -82,14 +98,10 @@ const Login: React.FC = () => {
     setIsError(false);
 
     try {
-      const result: AuthResponse = await authService.login({
-        username: uname,
-        password: pwd,
-      });
+      const result: AuthResponse = await authService.login({ username: uname, password: pwd });
 
-      if (result.success && result.user) {
+      if (result?.success && result.user) {
         const role = normalizeRole(result.user.role);
-
         const userObj: User = {
           id: String(result.user.id),
           username: result.user.username,
@@ -104,28 +116,29 @@ const Login: React.FC = () => {
         setMessage("Login successful! Redirecting...");
 
         const to =
-          role === "super_admin" || role === "admin"
+          role === "super_admin" || role === "admin" || role === "acad_head"
             ? "/admin"
             : role === "professor"
             ? "/prof"
             : "/";
 
         redirectTimer.current = window.setTimeout(() => navigate(to), 600);
-      } else {
-        setIsError(true);
-        setMessage(result.message || "Invalid credentials. Please try again.");
+        return;
       }
-    } catch (err) {
-      console.error("Login error:", err);
+
       setIsError(true);
-      setMessage("An error occurred during login. Please try again.");
+      setMessage("Invalid credentials or account inactive. Please try again.");
+
+    } catch (err: any) {
+      setIsError(true);
+      setMessage("Invalid credentials or account inactive. Please try again.");
+
     } finally {
       setIsLoading(false);
     }
   };
 
-  const canSubmit =
-    username.trim().length > 0 && password.length > 0 && !isLoading;
+  const canSubmit = username.trim().length > 0 && password.length > 0 && !isLoading;
 
   return (
     <div

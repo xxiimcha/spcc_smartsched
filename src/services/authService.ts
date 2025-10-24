@@ -3,21 +3,11 @@ import { apiService, ApiResponse } from "./apiService";
 
 export type RolePick = "admin" | "acad_head" | "super_admin" | "professors";
 
-export interface LoginCredentials {
-  username: string;
-  password: string;
-}
-
+export interface LoginCredentials { username: string; password: string; }
 export interface AuthUser {
-  id: string;
-  username: string;
-  role: RolePick;
-  email?: string;
-  name?: string;
-  token?: string | null;
-  profile?: any;
+  id: string; username: string; role: RolePick; email?: string; name?: string;
+  token?: string | null; profile?: any;
 }
-
 export interface AuthResponse {
   success: boolean;
   user?: AuthUser;
@@ -27,9 +17,20 @@ export interface AuthResponse {
 
 const AUTH_ENDPOINT = "/auth.php";
 
+// helper to detect wrapper statuses like "error"/"fail"
+const isWrapperStatus = (v: any) => {
+  const s = String(v ?? "").toLowerCase();
+  return s === "error" || s === "fail" || s === "failed";
+};
+
 function parseBackend<T = any>(resp: ApiResponse<T> | any) {
-  const ok = resp?.success === true || resp?.status === "success";
+  const ok =
+    resp?.success === true ||
+    resp?.status === "success" ||
+    resp?.data?.success === true;
+
   const user = resp?.user ?? resp?.data?.user;
+
   const message =
     resp?.message ??
     resp?.error ??
@@ -37,15 +38,32 @@ function parseBackend<T = any>(resp: ApiResponse<T> | any) {
     resp?.data?.error ??
     null;
 
-  return { ok, user, message };
+  // prefer inner payload's status when wrapper uses "error"
+  const inner = (resp?.data && typeof resp.data === "object") ? resp.data : resp;
+  let accountStatus: string | null =
+    inner?.status ?? null;
+
+  if (isWrapperStatus(accountStatus)) {
+    // try to find a more specific status inside nested data
+    const deeper = inner?.data && typeof inner.data === "object" ? inner.data : null;
+    if (deeper?.status && !isWrapperStatus(deeper.status)) {
+      accountStatus = deeper.status;
+    } else {
+      // some APIs put it as account_status
+      accountStatus = deeper?.account_status ?? inner?.account_status ?? null;
+    }
+  }
+
+  const code = resp?.code ?? resp?.data?.code ?? null;
+  return { ok, user, message, accountStatus, code };
 }
 
 function coerceRole(r: any): RolePick | null {
   const v = String(r ?? "").toLowerCase();
   if (v === "admin") return "admin";
-  if (v === "super_admin") return "super_admin";
-  if (v === "acad_head" || v === "acad_head") return "acad_head";
-  if (v === "professors" || v === "professor") return "professors";
+  if (v === "super_admin" || v === "super-admin") return "super_admin";
+  if (v === "acad_head" || v === "school_head" || v === "acad-head") return "acad_head";
+  if (v === "professor" || v === "professors") return "professors";
   return null;
 }
 
@@ -65,10 +83,36 @@ function normalizeUser(raw: any): AuthUser | null {
   };
 }
 
+function extractAxiosError(err: any): { message: string } {
+  const data = err?.response?.data;
+
+  // prefer inner object if wrapped
+  const inner = data?.data && typeof data.data === "object" ? data.data : data;
+
+  const serverMsg =
+    (typeof inner === "string" && inner) ||
+    inner?.error ||
+    inner?.message ||
+    (typeof data === "string" && data) ||
+    data?.error ||
+    data?.message ||
+    null;
+
+  // prefer a semantic status (inactive/suspended), avoid wrapper "error/fail"
+  let statusStr =
+    inner?.status && !isWrapperStatus(inner.status) ? inner.status :
+    inner?.account_status ? inner.account_status :
+    data?.status && !isWrapperStatus(data.status) ? data.status :
+    undefined;
+
+  let message = serverMsg || `HTTP ${err?.response?.status || ""}`.trim();
+  if (statusStr) message = `${message} (Status: ${statusStr})`;
+
+  return { message };
+}
+
 class AuthService {
-  private async doUnifiedAuth(
-    credentials: LoginCredentials
-  ): Promise<AuthResponse> {
+  private async doUnifiedAuth(credentials: LoginCredentials): Promise<AuthResponse> {
     try {
       const resp = await apiService.makeRequest<ApiResponse<any>>(
         "POST",
@@ -76,51 +120,41 @@ class AuthService {
         credentials
       );
 
-      const { ok, user, message } = parseBackend(resp);
+      const { ok, user, message, accountStatus } = parseBackend(resp);
 
       if (!ok || !user) {
         return {
           success: false,
-          message: message || "Invalid credentials",
+          error: accountStatus ? `${message || "Invalid credentials"} (Status: ${accountStatus})` : (message || "Invalid credentials"),
         };
       }
 
       const normalized = normalizeUser(user);
-      if (!normalized) {
-        return {
-          success: false,
-          message: "Unable to determine user role.",
-        };
-      }
+      if (!normalized) return { success: false, error: "Unable to determine user role." };
 
-      // Persist session (adjust keys as your app expects)
       localStorage.setItem("user", JSON.stringify(normalized));
       localStorage.setItem("role", normalized.role);
-      if (normalized.token) {
-        localStorage.setItem("authToken", normalized.token);
-      } else {
-        localStorage.removeItem("authToken");
-      }
+      if (normalized.token) localStorage.setItem("authToken", normalized.token);
+      else localStorage.removeItem("authToken");
 
       return { success: true, user: normalized };
-    } catch (err) {
+    } catch (err: any) {
       console.error("Auth error:", err);
+      const data = err?.response?.data;
+      const serverError =
+        data?.error ||
+        data?.message ||
+        (typeof data === "string" ? data : null);
       return {
         success: false,
-        error: "Authentication failed. Please try again.",
+        error: serverError || "Authentication failed. Please try again.",
       };
-    }
+    }    
   }
 
-  // Unified login (single endpoint)
-  async login(
-    credentials: LoginCredentials,
-    _rolePick?: RolePick // ignored; kept for backward compatibility
-  ): Promise<AuthResponse> {
+  async login(credentials: LoginCredentials, _rolePick?: RolePick): Promise<AuthResponse> {
     return this.doUnifiedAuth(credentials);
   }
-
-  // Backward-compatible wrappers (now just call unified)
   async loginAs(credentials: LoginCredentials, _role: RolePick): Promise<AuthResponse> {
     return this.doUnifiedAuth(credentials);
   }
@@ -144,21 +178,15 @@ class AuthService {
   }
 
   isAuthenticated(): boolean {
-    const user = localStorage.getItem("user");
-    const role = localStorage.getItem("role");
-    return !!(user && role);
+    return !!(localStorage.getItem("user") && localStorage.getItem("role"));
   }
 
   getCurrentUser() {
     const userStr = localStorage.getItem("user");
     const role = localStorage.getItem("role");
     if (userStr && role) {
-      try {
-        const user = JSON.parse(userStr);
-        return { ...user, role };
-      } catch (error) {
-        console.error("Error parsing user data:", error);
-      }
+      try { return { ...JSON.parse(userStr), role }; }
+      catch (e) { console.error("Error parsing user data:", e); }
     }
     return null;
   }
