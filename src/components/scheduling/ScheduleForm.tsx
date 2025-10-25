@@ -228,49 +228,62 @@ const ScheduleForm: React.FC<ScheduleFormProps> = ({ onSubmit, onCancel, title =
 
   useEffect(() => { loadSchedules(); }, [settings.schoolYear, settings.semester]);
 
-  // SECTION -> SUBJECTS
+  // SECTION -> SUBJECTS (strict to selected section only)
   useEffect(() => {
     const sid = watched.section;
+
+    // Clear dependents
     form.setValue("subjectId", "");
     form.setValue("professorId", "");
     setFilteredProfessors([]);
 
-    if (!sid) { setFilteredSubjects(subjects); return; }
+    // No section selected → no subjects
+    if (!sid) {
+      setFilteredSubjects([]);
+      return;
+    }
 
+    // Try local subject_ids first (if provided by getSections)
     const sec = sections.find((x) => x.id === sid);
-    const grade_level = sec?.grade_level;
-    const strand = (sec?.strand ?? "") || undefined;
+    const subjectIdsFromSection: string[] = Array.isArray((sec as any)?.subject_ids)
+      ? (sec as any).subject_ids.map((x: any) => String(x))
+      : [];
 
+    if (subjectIdsFromSection.length > 0) {
+      setFilteredSubjects(subjects.filter((s) => subjectIdsFromSection.includes(s.id)));
+      return;
+    }
+
+    // Otherwise, fetch strictly-assigned subjects from backend
     (async () => {
       setLoading((p) => ({ ...p, sectionSubjects: true }));
       try {
-        const res = await apiService.getSubjects({ grade_level, strand });
-        if (res?.success && Array.isArray(res.data) && res.data.length) {
-          const mapped = res.data.map((s: any) => ({
-            id: String(s.id ?? s.subj_id),
-            code: String(s.code ?? s.subj_code ?? "No Code"),
-            name: String(s.name ?? s.subj_name ?? "No Name"),
+        const res = await (apiService as any).getSectionSubjects?.(sid);
+        const rows =
+          (Array.isArray(res?.data) && res.data) ||
+          (Array.isArray(res?.data?.subjects) && res.data.subjects) ||
+          (Array.isArray(res?.data?.data) && res.data.data) ||
+          [];
+
+        const mapped: Subject[] = rows
+          .filter((r: any) => r && (r.subj_id || r.id))
+          .map((r: any) => ({
+            id: String(r.subj_id ?? r.id),
+            code: String(r.subj_code ?? r.code ?? "No Code"),
+            name: String(r.subj_name ?? r.name ?? "No Name"),
           }));
-          setFilteredSubjects(mapped);
-        } else {
-          const secIds: string[] = Array.isArray((sec as any)?.subject_ids)
-            ? (sec as any).subject_ids.map((x: any) => String(x))
-            : [];
-          if (secIds.length) setFilteredSubjects(subjects.filter((s) => secIds.includes(s.id)));
-          else setFilteredSubjects(subjects);
-        }
+
+        setFilteredSubjects(mapped);
       } catch {
-        const secIds: string[] = Array.isArray((sec as any)?.subject_ids)
-          ? (sec as any).subject_ids.map((x: any) => String(x))
-          : [];
-        if (secIds.length) setFilteredSubjects(subjects.filter((s) => secIds.includes(s.id)));
-        else setFilteredSubjects(subjects);
+        // Strict behavior: if we can't confirm assignment, show none
+        setFilteredSubjects([]);
       } finally {
         setLoading((p) => ({ ...p, sectionSubjects: false }));
       }
     })();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [watched.section, sections, subjects]);
+
 
   // SUBJECT -> PROFESSORS
   useEffect(() => {
@@ -865,27 +878,43 @@ const ScheduleForm: React.FC<ScheduleFormProps> = ({ onSubmit, onCancel, title =
                           render={({ field }) => (
                             <FormItem>
                               <FormLabel>Subject</FormLabel>
-                              <Select onValueChange={(v) => field.onChange(v)} value={field.value}>
+                              <Select
+                                onValueChange={(v) => field.onChange(v)}
+                                value={field.value}
+                                disabled={!watched.section || loading.sectionSubjects}
+                              >
                                 <FormControl>
                                   <SelectTrigger>
-                                    {loading.sectionSubjects
-                                      ? <span>Loading section subjects...</span>
-                                      : <SelectValue placeholder={watched.section ? "Select a subject" : "Pick a section first"} />
-                                    }
+                                    {loading.sectionSubjects ? (
+                                      <span>Loading section subjects...</span>
+                                    ) : !watched.section ? (
+                                      <SelectValue placeholder="Pick a section first" />
+                                    ) : filteredSubjects.length > 0 ? (
+                                      <SelectValue placeholder="Select a subject" />
+                                    ) : (
+                                      <SelectValue placeholder="No subjects assigned to this section" />
+                                    )}
                                   </SelectTrigger>
                                 </FormControl>
                                 <SelectContent>
-                                  {(watched.section ? filteredSubjects : subjects).map((subj) => (
-                                    <SelectItem key={subj.id} value={subj.id}>
-                                      {subj.code} - {subj.name}
+                                  {(!watched.section || filteredSubjects.length === 0) ? (
+                                    <SelectItem value="__none__" disabled>
+                                      {watched.section ? "No subjects assigned" : "Pick a section first"}
                                     </SelectItem>
-                                  ))}
+                                  ) : (
+                                    filteredSubjects.map((subj) => (
+                                      <SelectItem key={subj.id} value={subj.id}>
+                                        {subj.code} - {subj.name}
+                                      </SelectItem>
+                                    ))
+                                  )}
                                 </SelectContent>
                               </Select>
                               <FormMessage />
                             </FormItem>
                           )}
                         />
+
                       </div>
 
                       {/* Combine with other sections (Online/Async only) */}

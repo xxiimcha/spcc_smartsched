@@ -500,6 +500,21 @@ class ApiService {
     return { ...response, data: response.data?.sections || response.data?.data || response.data || [] };
   }
 
+  async getSectionSubjects(sectionId: number | string): Promise<ApiResponse<SubjectDTO[]>> {
+    const id = /^\d+$/.test(String(sectionId)) ? Number(sectionId) : sectionId;
+    const url = `/sections.php?id=${id}&with=subjects`;
+    const base = await this.makeRequest<any>("GET", url);
+
+    const rows =
+      (Array.isArray(base.data?.subjects) && base.data.subjects) ||
+      (Array.isArray(base.data?.data) && base.data.data) ||
+      (Array.isArray(base.data) && base.data) ||
+      [];
+
+    const mapped: SubjectDTO[] = rows.map((r: any) => this.mapSubjectRow(r));
+    return { ...base, data: mapped };
+  }
+  
   async getRoomAssignedSections(): Promise<ApiResponse<Section[]>> {
     const response = await this.makeRequest<any>("GET", "/get_room_assigned_sections.php");
     return { ...response, data: response.data?.sections || response.data?.data || response.data || [] };
