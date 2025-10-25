@@ -75,13 +75,6 @@ interface SectionFormProps {
   editingSection?: Section | null;
 }
 
-interface Room {
-  id: number;
-  number: number;
-  type: string;
-  capacity: number;
-}
-
 type Subject = {
   id: number;
   code?: string;
@@ -91,6 +84,10 @@ type Subject = {
   units?: number;
 };
 
+function norm(v?: string | number) {
+  return v == null ? "" : String(v).trim().toUpperCase();
+}
+
 const SectionForm: React.FC<SectionFormProps> = ({
   open = false,
   onOpenChange,
@@ -98,7 +95,6 @@ const SectionForm: React.FC<SectionFormProps> = ({
   sections,
   editingSection,
 }) => {
-  const [rooms, setRooms] = useState<Room[]>([]);
   const [loading, setLoading] = useState(false);
   const [assigning, setAssigning] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -158,14 +154,22 @@ const SectionForm: React.FC<SectionFormProps> = ({
   const watchGrade = form.watch("grade_level");
   const watchStrand = form.watch("strand");
 
+  // Only fetch subjects when a strand is chosen; also send grade + strand as filters.
   useEffect(() => {
     if (!open) return;
     const controller = new AbortController();
+
     const fetchSubjects = async () => {
       try {
-        const params: any = {};
+        // Gate: do not request until a strand is selected
+        if (!watchStrand) {
+          setAllSubjects([]);
+          return;
+        }
+
+        const params: any = { strand: watchStrand };
         if (watchGrade) params.grade_level = watchGrade;
-        if (watchStrand) params.strand = watchStrand;
+
         const res = await axios.get(SUBJECTS_URL, { params, signal: controller.signal });
         const raw = Array.isArray(res.data) ? res.data : res.data?.data || [];
         const list: Subject[] = raw
@@ -192,7 +196,17 @@ const SectionForm: React.FC<SectionFormProps> = ({
             };
           })
           .filter((s: Subject) => Number.isFinite(s.id));
-        setAllSubjects(list);
+
+        // Safety: re-filter strictly by selected strand (and grade if present)
+        const strandKey = norm(watchStrand);
+        const gradeKey = norm(watchGrade);
+        const filtered = list.filter((s) => {
+          const sameStrand = norm(s.strand) === strandKey;
+          const sameGrade = gradeKey ? norm(s.grade_level) === gradeKey : true;
+          return sameStrand && sameGrade;
+        });
+
+        setAllSubjects(filtered);
       } catch {
         toast({
           title: "Couldn’t load subjects",
@@ -201,9 +215,22 @@ const SectionForm: React.FC<SectionFormProps> = ({
         });
       }
     };
+
     fetchSubjects();
     return () => controller.abort();
   }, [open, watchGrade, watchStrand]); // eslint-disable-line
+
+  // If strand changes, drop any selected subjects that don't belong to the current strand.
+  useEffect(() => {
+    if (!watchStrand) {
+      form.setValue("subjects", []);
+      return;
+    }
+    if (allSubjects.length === 0) return;
+    const validIds = new Set(allSubjects.map((s) => s.id));
+    const next = (form.getValues("subjects") || []).filter((id) => validIds.has(id));
+    form.setValue("subjects", next);
+  }, [watchStrand, allSubjects]); // eslint-disable-line
 
   const selectedSubjectIds = form.watch("subjects");
   const selectedSubjects = useMemo(
@@ -302,6 +329,8 @@ const SectionForm: React.FC<SectionFormProps> = ({
     }
   };
 
+  const canShowSubjects = Boolean(watchStrand);
+
   return (
     <>
       <Dialog open={open} onOpenChange={onOpenChange}>
@@ -366,7 +395,14 @@ const SectionForm: React.FC<SectionFormProps> = ({
                   render={({ field }) => (
                     <FormItem>
                       <FormLabel>Strand</FormLabel>
-                      <Select onValueChange={field.onChange} value={field.value}>
+                      <Select
+                        onValueChange={(v) => {
+                          field.onChange(v);
+                          // Clear selections when strand changes
+                          form.setValue("subjects", []);
+                        }}
+                        value={field.value}
+                      >
                         <FormControl>
                           <SelectTrigger>
                             <SelectValue placeholder="Select strand" />
@@ -412,14 +448,24 @@ const SectionForm: React.FC<SectionFormProps> = ({
                 render={() => (
                   <FormItem>
                     <FormLabel>Assign Subjects</FormLabel>
-                    {allSubjects.length === 0 ? (
-                      <p className="text-sm text-muted-foreground">No subjects available for this grade level and strand.</p>
+
+                    {!canShowSubjects ? (
+                      <p className="text-sm text-muted-foreground">
+                        Select a <span className="font-medium">Strand</span> above to view available subjects.
+                      </p>
+                    ) : allSubjects.length === 0 ? (
+                      <p className="text-sm text-muted-foreground">
+                        No subjects found for the selected strand{watchGrade ? ` and Grade ${watchGrade}` : ""}.
+                      </p>
                     ) : (
                       <div className="max-h-[220px] overflow-y-auto border rounded-md p-3 space-y-2">
                         {allSubjects.map((subject) => {
                           const checked = form.watch("subjects").includes(subject.id);
                           return (
-                            <div key={subject.id} className="flex items-start space-x-2 border-b border-muted/30 pb-2 last:border-0 last:pb-0">
+                            <div
+                              key={subject.id}
+                              className="flex items-start space-x-2 border-b border-muted/30 pb-2 last:border-0 last:pb-0"
+                            >
                               <input
                                 id={`subject-${subject.id}`}
                                 type="checkbox"
@@ -448,7 +494,11 @@ const SectionForm: React.FC<SectionFormProps> = ({
                         })}
                       </div>
                     )}
-                    <p className="text-[11px] text-muted-foreground mt-2">List automatically filters by grade level and strand.</p>
+
+                    <p className="text-[11px] text-muted-foreground mt-2">
+                      Subjects are shown only after selecting a strand and are limited to that strand
+                      {watchGrade ? ` and Grade ${watchGrade}` : ""}.
+                    </p>
                     <FormMessage />
                   </FormItem>
                 )}
