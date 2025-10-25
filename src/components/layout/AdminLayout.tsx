@@ -1,23 +1,21 @@
 import React, { useState, ReactNode } from "react";
+import { Outlet } from "react-router-dom";
 import AdminSidebar from "./AdminSidebar";
 import { Menu } from "lucide-react";
 import { Button } from "@/components/ui/button";
 
-interface AdminLayoutProps {
-  children: ReactNode;
-}
+type AdminLayoutProps = {
+  children?: ReactNode; // make optional
+};
 
 const AdminLayout: React.FC<AdminLayoutProps> = ({ children }) => {
   const [sidebarOpen, setSidebarOpen] = useState(false);
-
-  const toggleSidebar = () => {
-    setSidebarOpen(!sidebarOpen);
-  };
+  const toggleSidebar = () => setSidebarOpen((s) => !s);
 
   return (
     <div className="h-screen bg-gray-50 relative">
       <div className="flex h-full">
-        {/* Sidebar with conditional classes */}
+        {/* Sidebar */}
         <div
           className={`fixed md:relative z-20 transition-all duration-300 ease-in-out ${
             sidebarOpen ? "translate-x-0" : "-translate-x-full md:translate-x-0"
@@ -26,9 +24,8 @@ const AdminLayout: React.FC<AdminLayoutProps> = ({ children }) => {
           <AdminSidebar isOpen={sidebarOpen} onToggle={toggleSidebar} />
         </div>
 
-        {/* Main content */}
+        {/* Main */}
         <main className="flex-1 overflow-auto p-6 w-full">
-          {/* Mobile menu toggle button - only visible on small screens */}
           <Button
             variant="outline"
             size="icon"
@@ -37,11 +34,13 @@ const AdminLayout: React.FC<AdminLayoutProps> = ({ children }) => {
           >
             <Menu className="h-5 w-5" />
           </Button>
-          {children}
+
+          {/* If children provided, render them; otherwise render nested routes */}
+          {children ?? <Outlet />}
         </main>
       </div>
 
-      {/* Overlay for mobile */}
+      {/* Mobile overlay */}
       {sidebarOpen && (
         <div
           className="fixed inset-0 bg-black/50 z-10 md:hidden"

@@ -21,20 +21,36 @@ type AuthContextValue = {
   logout: () => void;
 
   // convenience flags
-  isAdmin: boolean;
+  isAdmin: boolean;              // (admin OR super_admin) — keep existing meaning
   isSuperAdmin: boolean;
-  isSchoolHead: boolean;
+  isSchoolHead: boolean;         // acad_head
   isProfessor: boolean;
+  canAccessAdminPanel: boolean;  // NEW: super_admin OR admin OR acad_head
 };
 
 const AuthContext = createContext<AuthContextValue | undefined>(undefined);
 
+// Optional: normalize role in case localStorage has variants
+const normalizeRole = (r: string): Role => {
+  const v = String(r ?? "")
+    .trim()
+    .toLowerCase()
+    .replace(/\s+/g, "_")
+    .replace(/-+/g, "_");
+  if (v === "super_admin" || v === "superadmin") return "super_admin";
+  if (v === "admin" || v === "administrator") return "admin";
+  if (v === "acad_head" || v === "school_head" || v === "academic_head" || v === "acadhead" || v === "schoolhead")
+    return "acad_head";
+  return "professor";
+};
+
 function readStoredUser(): User | null {
   try {
     const raw = localStorage.getItem("user");
-    const role = localStorage.getItem("role");
-    if (!raw || !role) return null;
+    const roleRaw = localStorage.getItem("role");
+    if (!raw || !roleRaw) return null;
     const parsed = JSON.parse(raw);
+    const role = normalizeRole(roleRaw);
     return { ...parsed, role } as User;
   } catch {
     return null;
@@ -44,21 +60,22 @@ function readStoredUser(): User | null {
 export const AuthProvider: React.FC<React.PropsWithChildren> = ({ children }) => {
   const [user, setUser] = useState<User | null>(() => readStoredUser());
 
-  // Keep state in sync across tabs and keep X-User-Role header correct
+  // Sync across tabs + keep X-User-Role header correct when storage changes
   useEffect(() => {
     const onStorage = () => {
       const u = readStoredUser();
       setUser(u);
-      setApiUserRole(u?.role); // set/clear header if user changed in another tab
+      setApiUserRole(u?.role);
     };
     window.addEventListener("storage", onStorage);
     return () => window.removeEventListener("storage", onStorage);
   }, []);
 
-  // Ensure header is set on initial mount (rehydrated user)
+  // Ensure header set on first mount (rehydrated user)
   useEffect(() => {
     setApiUserRole(user?.role);
-  }, []); // run once on mount
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []); // run once
 
   const login = (u: User) => {
     setUser(u);
@@ -67,7 +84,6 @@ export const AuthProvider: React.FC<React.PropsWithChildren> = ({ children }) =>
     if (u.token) localStorage.setItem("authToken", u.token);
     else localStorage.removeItem("authToken");
 
-    // IMPORTANT: set X-User-Role for all subsequent requests
     setApiUserRole(u.role);
   };
 
@@ -76,20 +92,26 @@ export const AuthProvider: React.FC<React.PropsWithChildren> = ({ children }) =>
     localStorage.removeItem("user");
     localStorage.removeItem("role");
     localStorage.removeItem("authToken");
-
-    // IMPORTANT: remove X-User-Role header
     setApiUserRole(undefined);
   };
 
   const isAuthenticated = !!user;
 
   const flags = useMemo(
-    () => ({
-      isAdmin: user?.role === "admin" || user?.role === "super_admin",
-      isSuperAdmin: user?.role === "super_admin",
-      isSchoolHead: user?.role === "acad_head",
-      isProfessor: user?.role === "professor",
-    }),
+    () => {
+      const role = user?.role;
+      const isAdmin = role === "admin" || role === "super_admin"; // preserve old meaning
+      const canAccessAdminPanel =
+        role === "super_admin" || role === "admin" || role === "acad_head"; // <-- include acad_head
+
+      return {
+        isAdmin,
+        isSuperAdmin: role === "super_admin",
+        isSchoolHead: role === "acad_head",
+        isProfessor: role === "professor",
+        canAccessAdminPanel,
+      };
+    },
     [user?.role]
   );
 
@@ -106,8 +128,6 @@ export const AuthProvider: React.FC<React.PropsWithChildren> = ({ children }) =>
 
 export const useAuth = (): AuthContextValue => {
   const ctx = useContext(AuthContext);
-  if (!ctx) {
-    throw new Error("useAuth must be used within an AuthProvider");
-  }
+  if (!ctx) throw new Error("useAuth must be used within an AuthProvider");
   return ctx;
 };
