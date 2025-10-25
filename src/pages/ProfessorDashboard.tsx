@@ -41,6 +41,11 @@ type ViewMode = "list" | "calendar";
 const WEEK_ORDER = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
 const DAY_INDEX: Record<string, number> = { Mon: 0, Tue: 1, Wed: 2, Thu: 3, Fri: 4, Sat: 5, Sun: 6 };
 
+// Calendar window + sizing
+const MIN_MIN = 7 * 60;   // 07:00
+const MAX_MIN = 17 * 60;  // 20:00
+const ROW_PX = 56;        // pixels per hour row (tweak design here)
+
 function normalizeDays(d: string | string[] | undefined | null): string[] {
   if (!d) return [];
   const map: Record<string, string> = {
@@ -121,10 +126,10 @@ const ProfessorDashboard: React.FC = () => {
     [weekStart]
   );
 
-  // Calendar time window
-  const MIN_MIN = 7 * 60, MAX_MIN = 20 * 60;
+  // Derived calendar metrics
   const totalMinutes = MAX_MIN - MIN_MIN;
   const hourRows = (MAX_MIN - MIN_MIN) / 60 + 1;
+  const CAL_HEIGHT = Math.ceil((MAX_MIN - MIN_MIN) / 60) * ROW_PX;
 
   // Resolve prof_id
   useEffect(() => {
@@ -269,7 +274,6 @@ const ProfessorDashboard: React.FC = () => {
 
   const dialogTitle = (sel: ScheduleRow | null) =>
     sel?.subject_name || sel?.subject || sel?.subj_code || (sel ? `Subject #${sel.subj_id}` : "Class Details");
-  const dialogDays = (sel: ScheduleRow | null) => (sel ? normalizeDays(sel.days).join(", ") || "—" : "—");
 
   return (
     <>
@@ -386,7 +390,7 @@ const ProfessorDashboard: React.FC = () => {
             </CardContent>
           </Card>
         ) : (
-          /* Calendar view unchanged */
+          // ===== CALENDAR VIEW =====
           <Card className="shadow-md border border-muted/30">
             <CardHeader className="flex items-center justify-between bg-muted/10 rounded-t-lg px-5 py-3 border-b">
               <CardTitle className="text-lg font-semibold flex items-center gap-2">
@@ -425,8 +429,83 @@ const ProfessorDashboard: React.FC = () => {
             </CardHeader>
 
             <CardContent className="p-0 overflow-x-auto">
-              {/* … calendar body identical to your current version (omitted for brevity) */}
-              {/* keep your existing code here */}
+              <div className="min-w-[1000px]">
+                {/* Grid: time gutter + 7 day columns */}
+                <div className="grid grid-cols-[80px_repeat(7,1fr)]">
+                  {/* Time gutter */}
+                  <div className="relative border-r bg-muted/10" style={{ height: CAL_HEIGHT }}>
+                    {Array.from({ length: hourRows }, (_, i) => {
+                      const minutes = MIN_MIN + i * 60;
+                      const h = Math.floor(minutes / 60);
+                      const m = minutes % 60;
+                      const label = new Date(0, 0, 0, h, m).toLocaleTimeString([], {
+                        hour: "2-digit",
+                        minute: "2-digit",
+                      });
+                      return (
+                        <div
+                          key={minutes}
+                          className="text-xs text-muted-foreground pr-2 border-b flex items-start justify-end"
+                          style={{ height: ROW_PX }}
+                        >
+                          <span className="mt-2 mr-2">{label}</span>
+                        </div>
+                      );
+                    })}
+                  </div>
+
+                  {/* 7 day columns: Monday (0) -> Sunday (6) */}
+                  {Array.from({ length: 7 }, (_, dayIdx) => (
+                    <div key={dayIdx} className="relative border-r last:border-r-0" style={{ height: CAL_HEIGHT }}>
+                      {/* Hour lines */}
+                      {Array.from({ length: hourRows }, (_, i) => (
+                        <div key={i} className="border-b" style={{ height: ROW_PX }} />
+                      ))}
+
+                      {/* Day header */}
+                      <div className="absolute left-2 top-2 text-xs font-medium text-muted-foreground pointer-events-none">
+                        {WEEK_ORDER[dayIdx]}{" "}
+                        <span className="opacity-70">
+                          {dayDates[dayIdx].toLocaleDateString(undefined, { month: "short", day: "numeric" })}
+                        </span>
+                      </div>
+
+                      {/* Events for this day */}
+                      {weekEvents
+                        .filter(ev => ev.dayIndex === dayIdx)
+                        .map(ev => {
+                          // clamp to visible window
+                          const start = Math.max(ev.startMin, MIN_MIN);
+                          const end   = Math.min(ev.endMin,   MAX_MIN);
+                          if (end <= MIN_MIN || start >= MAX_MIN) return null;
+
+                          const topPct = ((start - MIN_MIN) / totalMinutes) * 100;
+                          const heightPct = Math.max(((end - start) / totalMinutes) * 100, (30 / totalMinutes) * 100);
+
+                          return (
+                            <div
+                              key={ev.key}
+                              className="absolute left-1 right-1 rounded-md px-2 py-1 text-xs bg-blue-600/90 text-white shadow"
+                              style={{ top: `${topPct}%`, height: `${heightPct}%` }}
+                              onClick={() => openDialog(ev.schedule)}
+                              role="button"
+                              tabIndex={0}
+                              onKeyDown={(e) => e.key === "Enter" && openDialog(ev.schedule)}
+                              title={`${ev.label} • ${fmtTime(ev.schedule.start_time)}–${fmtTime(ev.schedule.end_time)}`}
+                            >
+                              <div className="font-medium truncate">{ev.label}</div>
+                              <div className="opacity-90 truncate">
+                                {fmtTime(ev.schedule.start_time)}–{fmtTime(ev.schedule.end_time)}
+                                {ev.section ? ` • ${ev.section}` : ""}
+                                {ev.room ? ` • Room ${ev.room}` : ""}
+                              </div>
+                            </div>
+                          );
+                        })}
+                    </div>
+                  ))}
+                </div>
+              </div>
             </CardContent>
           </Card>
         )}
@@ -436,7 +515,7 @@ const ProfessorDashboard: React.FC = () => {
       <Dialog open={open} onOpenChange={setOpen}>
         <DialogContent className="sm:max-w-[520px]">
           <DialogHeader>
-            <DialogTitle>{selected ? (selected.subject_name || selected.subject || selected.subj_code || `Subject #${selected.subj_id}`) : "Class Details"}</DialogTitle>
+            <DialogTitle>{dialogTitle(selected)}</DialogTitle>
             <DialogDescription>Detailed information about this class.</DialogDescription>
           </DialogHeader>
 
