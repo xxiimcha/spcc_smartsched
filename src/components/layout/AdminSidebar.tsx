@@ -2,14 +2,21 @@ import React, { useState, useEffect } from "react";
 import { useNavigate, useLocation, Link } from "react-router-dom";
 import { cn } from "@/lib/utils";
 import {
-  Shield,
+  // Header / general
+  ShieldCheck,
   Settings,
   LogOut,
   ChevronRight,
   Menu,
-  BarChart3,
+  // Navigation (enhanced)
+  LayoutDashboard,
+  GraduationCap,
+  Building2,
+  BookOpen,
+  SquareStack,
+  CalendarClock,
+  Users as UsersIcon,
   FileDown,
-  Users,             // ⬅️ NEW: icon for User Management
 } from "lucide-react";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
@@ -149,8 +156,7 @@ const AdminSidebar = ({ isOpen, onToggle }: AdminSidebarProps) => {
   const DASHBOARD_PATH = "/admin/dashboard";
   const SETTINGS_PATH = "/admin/settings";
 
-  const isSuperAdmin = user?.role === "super_admin";
-  const isAdminOrSuper = user?.role === "admin" || user?.role === "super_admin"; // ⬅️ NEW
+  const isAdminOrSuper = user?.role === "admin" || user?.role === "super_admin";
 
   return (
     <div
@@ -162,7 +168,7 @@ const AdminSidebar = ({ isOpen, onToggle }: AdminSidebarProps) => {
       <div className="p-6">
         <div className="flex items-center gap-2 mb-8">
           <div className="h-8 w-8 rounded-md bg-red-600 flex items-center justify-center">
-            <Shield className="h-4 w-4 text-white" />
+            <ShieldCheck className="h-4 w-4 text-white" />
           </div>
           {isOpen && <h1 className="font-bold text-xl text-red-600">Admin Panel</h1>}
           <Button
@@ -177,7 +183,7 @@ const AdminSidebar = ({ isOpen, onToggle }: AdminSidebarProps) => {
 
         <nav className="space-y-1">
           <NavItem
-            icon={<BarChart3 className="h-5 w-5" />}
+            icon={<LayoutDashboard className="h-5 w-5" />}
             label="Dashboard"
             path={DASHBOARD_PATH}
             active={currentPath === "/admin" || currentPath === DASHBOARD_PATH}
@@ -185,7 +191,7 @@ const AdminSidebar = ({ isOpen, onToggle }: AdminSidebarProps) => {
           />
 
           <NavItem
-            icon={<Shield className="h-5 w-5" />}
+            icon={<GraduationCap className="h-5 w-5" />}
             label="Professors"
             path="/admin/professors"
             active={currentPath.startsWith("/admin/professors")}
@@ -193,7 +199,7 @@ const AdminSidebar = ({ isOpen, onToggle }: AdminSidebarProps) => {
           />
 
           <NavItem
-            icon={<Menu className="h-5 w-5" />}
+            icon={<Building2 className="h-5 w-5" />}
             label="Rooms"
             path="/admin/rooms"
             active={currentPath.startsWith("/admin/rooms")}
@@ -201,7 +207,7 @@ const AdminSidebar = ({ isOpen, onToggle }: AdminSidebarProps) => {
           />
 
           <NavItem
-            icon={<FileDown className="h-5 w-5" />}
+            icon={<BookOpen className="h-5 w-5" />}
             label="Subjects"
             path="/admin/subjects"
             active={currentPath.startsWith("/admin/subjects")}
@@ -209,7 +215,7 @@ const AdminSidebar = ({ isOpen, onToggle }: AdminSidebarProps) => {
           />
 
           <NavItem
-            icon={<ChevronRight className="h-5 w-5" />}
+            icon={<SquareStack className="h-5 w-5" />}
             label="Sections"
             path="/admin/sections"
             active={currentPath.startsWith("/admin/sections")}
@@ -217,7 +223,7 @@ const AdminSidebar = ({ isOpen, onToggle }: AdminSidebarProps) => {
           />
 
           <NavItem
-            icon={<BarChart3 className="h-5 w-5" />}
+            icon={<CalendarClock className="h-5 w-5" />}
             label="Scheduling"
             path="/admin/scheduling"
             active={currentPath.startsWith("/admin/scheduling")}
@@ -226,7 +232,7 @@ const AdminSidebar = ({ isOpen, onToggle }: AdminSidebarProps) => {
 
           {isAdminOrSuper && (
             <NavItem
-              icon={<Users className="h-5 w-5" />}
+              icon={<UsersIcon className="h-5 w-5" />}
               label="User Management"
               path="/admin/users"
               active={currentPath.startsWith("/admin/users")}
@@ -269,17 +275,17 @@ const AdminSidebar = ({ isOpen, onToggle }: AdminSidebarProps) => {
             <AvatarImage src="https://api.dicebear.com/7.x/avataaars/svg?seed=admin" />
             <AvatarFallback className="bg-red-600 text-white">AD</AvatarFallback>
           </Avatar>
-          {isOpen && (
-            <div>
-              <p className="text-sm font-medium">
-                {user?.name || user?.username || "Admin User"}
-              </p>
-              <p className="text-xs text-muted-foreground">
-                {user?.role === "super_admin" ? "Super Admin" : "Admin"}
-              </p>
-            </div>
-          )}
         </div>
+        {isOpen && (
+          <div className="mt-2">
+            <p className="text-sm font-medium">
+              {user?.name || user?.username || "Admin User"}
+            </p>
+            <p className="text-xs text-muted-foreground">
+              {user?.role === "super_admin" ? "Super Admin" : "Admin"}
+            </p>
+          </div>
+        )}
         <Button
           variant="ghost"
           className={cn(
