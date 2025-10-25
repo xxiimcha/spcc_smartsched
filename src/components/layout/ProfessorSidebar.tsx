@@ -2,7 +2,7 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { useLocation, Link, useNavigate } from "react-router-dom";
 import { cn } from "@/lib/utils";
-import { BookOpen, LayoutDashboard, LogOut, Menu, User } from "lucide-react";
+import { BookOpen, LayoutDashboard, LogOut, Menu, User, Eye, EyeOff } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -76,6 +76,7 @@ const NavItem = ({ icon, label, path, active = false, isOpen }: NavItemProps) =>
 };
 
 const ProfessorSidebar: React.FC<ProfessorSidebarProps> = ({ isOpen, onToggle }) => {
+  
   const location = useLocation();
   const navigate = useNavigate();
   const { toast } = useToast();
@@ -94,6 +95,9 @@ const ProfessorSidebar: React.FC<ProfessorSidebarProps> = ({ isOpen, onToggle })
   const [username, setUsername] = useState<string>(user?.username || "");
   const [newPassword, setNewPassword] = useState<string>("");
   const [confirmPassword, setConfirmPassword] = useState<string>("");
+
+  const [showNewPwd, setShowNewPwd] = useState(false);
+  const [showConfirmPwd, setShowConfirmPwd] = useState(false);  
 
   useEffect(() => {
     setName(user?.name || user?.full_name || "");
@@ -318,27 +322,58 @@ const ProfessorSidebar: React.FC<ProfessorSidebarProps> = ({ isOpen, onToggle })
 
               <Separator />
 
+              {/* New password with show/hide */}
               <div className="grid gap-2">
                 <Label htmlFor="newPassword">New password (optional)</Label>
-                <Input
-                  id="newPassword"
-                  type="password"
-                  placeholder="••••••••"
-                  value={newPassword}
-                  onChange={(e) => setNewPassword(e.target.value)}
-                />
+                <div className="relative">
+                  <Input
+                    id="newPassword"
+                    type={showNewPwd ? "text" : "password"}
+                    placeholder="••••••••"
+                    value={newPassword}
+                    onChange={(e) => setNewPassword(e.target.value)}
+                    className="pr-10"
+                    autoComplete="new-password"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setShowNewPwd((v) => !v)}
+                    className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+                    aria-label={showNewPwd ? "Hide password" : "Show password"}
+                    aria-pressed={showNewPwd}
+                    tabIndex={-1}
+                  >
+                    {showNewPwd ? <EyeOff className="h-5 w-5" /> : <Eye className="h-5 w-5" />}
+                  </button>
+                </div>
               </div>
 
+              {/* Confirm password with show/hide */}
               <div className="grid gap-2">
                 <Label htmlFor="confirmPassword">Confirm new password</Label>
-                <Input
-                  id="confirmPassword"
-                  type="password"
-                  placeholder="••••••••"
-                  value={confirmPassword}
-                  onChange={(e) => setConfirmPassword(e.target.value)}
-                />
+                <div className="relative">
+                  <Input
+                    id="confirmPassword"
+                    type={showConfirmPwd ? "text" : "password"}
+                    placeholder="••••••••"
+                    value={confirmPassword}
+                    onChange={(e) => setConfirmPassword(e.target.value)}
+                    className="pr-10"
+                    autoComplete="new-password"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setShowConfirmPwd((v) => !v)}
+                    className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+                    aria-label={showConfirmPwd ? "Hide password" : "Show password"}
+                    aria-pressed={showConfirmPwd}
+                    tabIndex={-1}
+                  >
+                    {showConfirmPwd ? <EyeOff className="h-5 w-5" /> : <Eye className="h-5 w-5" />}
+                  </button>
+                </div>
               </div>
+
             </div>
           </div>
 

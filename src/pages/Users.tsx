@@ -11,7 +11,7 @@ import {
   X as XIcon,
   Pencil,
   RefreshCw,
-  Power,
+  Power, Eye, EyeOff,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -122,6 +122,7 @@ function visibleRoleOptionsFor(viewerRole?: Role): { value: Role | "all"; label:
 }
 
 const Users: React.FC = () => {
+  const [showAddPwd, setShowAddPwd] = useState(false);
   const { user } = useAuth();
   const isSuperAdmin = user?.role === "super_admin";
   const isAdmin = user?.role === "admin";
@@ -806,12 +807,26 @@ const Users: React.FC = () => {
 
               <div className="grid gap-1">
                 <Label htmlFor="password">Password (optional)</Label>
-                <Input
-                  id="password"
-                  type="password"
-                  value={form.password}
-                  onChange={(e) => setForm((f) => ({ ...f, password: e.target.value }))}
-                />
+                <div className="relative">
+                  <Input
+                    id="password"
+                    type={showAddPwd ? "text" : "password"}
+                    value={form.password}
+                    onChange={(e) => setForm((f) => ({ ...f, password: e.target.value }))}
+                    className="pr-10"
+                    autoComplete="new-password"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setShowAddPwd((v) => !v)}
+                    className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+                    aria-label={showAddPwd ? "Hide password" : "Show password"}
+                    aria-pressed={showAddPwd}
+                    tabIndex={-1}
+                  >
+                    {showAddPwd ? <EyeOff className="h-5 w-5" /> : <Eye className="h-5 w-5" />}
+                  </button>
+                </div>
               </div>
             </div>
 
