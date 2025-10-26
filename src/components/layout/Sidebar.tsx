@@ -108,35 +108,35 @@ const Sidebar = ({ isOpen, onToggle }: SidebarProps) => {
           <NavItem
             icon={<Home className="h-5 w-5" />}
             label="Dashboard"
-            path="/"
+            path="/acad"
             active={currentPath === "/"}
             isOpen={isOpen}
           />
           <NavItem
             icon={<Users className="h-5 w-5" />}
             label="Professors"
-            path="/professors"
+            path="/acad/professors"
             active={currentPath.startsWith("/professors")}
             isOpen={isOpen}
           />
           <NavItem
             icon={<BookOpen className="h-5 w-5" />}
             label="Subjects"
-            path="/subjects"
+            path="/acad/subjects"
             active={currentPath.startsWith("/subjects")}
             isOpen={isOpen}
           />
           <NavItem
             icon={<GraduationCap className="h-5 w-5" />}
             label="Sections"
-            path="/sections"
+            path="/acad/sections"
             active={currentPath.startsWith("/sections")}
             isOpen={isOpen}
           />
           <NavItem
             icon={<DoorOpen className="h-5 w-5" />}
             label="Rooms"
-            path="/rooms"
+            path="/acad/rooms"
             active={currentPath.startsWith("/rooms")}
             isOpen={isOpen}
           />
@@ -144,7 +144,7 @@ const Sidebar = ({ isOpen, onToggle }: SidebarProps) => {
           <NavItem
             icon={<Calendar className="h-5 w-5" />}
             label="Scheduling"
-            path="/scheduling"
+            path="/acad/scheduling"
             active={currentPath.startsWith("/scheduling")}
             isOpen={isOpen}
           />
