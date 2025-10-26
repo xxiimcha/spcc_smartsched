@@ -35,6 +35,7 @@ import { AlertTriangle } from "lucide-react";
 
 const SUBJECTS_URL = "https://spcc-scheduler.site/subjects.php";
 const SECTION_SUBJECTS_URL = "https://spcc-scheduler.site/section_subjects.php";
+const MAX_SUBJECTS = 8;
 
 const formSchema = z.object({
   section_name: z
@@ -46,12 +47,16 @@ const formSchema = z.object({
   number_of_students: z
     .string()
     .refine((val) => {
-      const num = parseInt(val);
-      return !isNaN(num) && num >= 0;
-    }, "Number of students must be a non-negative number"),
-  strand: z.string({ required_error: "Please select a strand" }).max(10, "Strand must be less than 10 characters"),
-  subjects: z.array(z.number()).default([]),
+      const n = Number(val);
+      return Number.isInteger(n) && n >= 10 && n <= 50;
+    }, "Number of students must be an integer between 10 and 50"),
+    strand: z.string({ required_error: "Please select a strand" }).max(10, "Strand must be less than 10 characters"),
+    subjects: z
+    .array(z.number())
+    .max(MAX_SUBJECTS, `You can assign up to ${MAX_SUBJECTS} subjects.`)
+    .default([]),
 });
+
 
 interface Section {
   section_id: number;
@@ -102,6 +107,7 @@ const SectionForm: React.FC<SectionFormProps> = ({
   const [successMessage, setSuccessMessage] = useState("");
   const { toast } = useToast();
   const [allSubjects, setAllSubjects] = useState<Subject[]>([]);
+
 
   const form = useForm<z.infer<typeof formSchema>>({
     resolver: zodResolver(formSchema),
@@ -233,6 +239,8 @@ const SectionForm: React.FC<SectionFormProps> = ({
   }, [watchStrand, allSubjects]); // eslint-disable-line
 
   const selectedSubjectIds = form.watch("subjects");
+  const selectedCount = selectedSubjectIds.length;
+  const atCap = selectedCount >= MAX_SUBJECTS;
   const selectedSubjects = useMemo(
     () => allSubjects.filter((s) => selectedSubjectIds.includes(s.id)),
     [allSubjects, selectedSubjectIds]
@@ -278,9 +286,9 @@ const SectionForm: React.FC<SectionFormProps> = ({
       const payload = {
         section_name: values.section_name,
         grade_level: values.grade_level,
-        number_of_students: values.number_of_students,
+        number_of_students: Number(values.number_of_students), // ensure numeric
         strand: values.strand,
-        subject_ids: values.subjects || [],
+        subject_ids: (values.subjects || []).slice(0, MAX_SUBJECTS), // hard cap
       };
 
       let response;
@@ -432,11 +440,16 @@ const SectionForm: React.FC<SectionFormProps> = ({
                     <FormControl>
                       <Input
                         type="number"
-                        placeholder="Enter number of students"
+                        inputMode="numeric"
+                        min={10}
+                        max={50}
+                        step={1}
+                        placeholder="Enter number of students (10–50)"
                         {...field}
                         onChange={(e) => field.onChange(e.target.value)}
                       />
                     </FormControl>
+                    <p className="text-[11px] text-muted-foreground">Allowed range: 10–50 students.</p>
                     <FormMessage />
                   </FormItem>
                 )}
@@ -471,14 +484,25 @@ const SectionForm: React.FC<SectionFormProps> = ({
                                 type="checkbox"
                                 checked={checked}
                                 onChange={() => {
-                                  const selected = form.getValues("subjects");
+                                  const selected = form.getValues("subjects") || [];
                                   if (checked) {
+                                    // unselect always allowed
                                     form.setValue("subjects", selected.filter((id) => id !== subject.id));
                                   } else {
+                                    // prevent selecting beyond cap
+                                    if (selected.length >= MAX_SUBJECTS) {
+                                      toast({
+                                        title: "Limit reached",
+                                        description: `You can assign up to ${MAX_SUBJECTS} subjects only.`,
+                                        variant: "destructive",
+                                      });
+                                      return;
+                                    }
                                     form.setValue("subjects", [...selected, subject.id]);
                                   }
                                 }}
                                 className="mt-[2px] h-4 w-4 accent-primary"
+                                disabled={!checked && atCap}
                               />
                               <label htmlFor={`subject-${subject.id}`} className="flex-1 text-sm leading-tight cursor-pointer">
                                 <span className="font-medium">{subject.code || `Subject ${subject.id}`}</span>

@@ -31,6 +31,8 @@ type Props = {
   onSaved?: () => void;
 };
 
+const MAX_SUBJECTS = 8;
+
 const AssignSubjectsDialog: React.FC<Props> = ({
   open,
   onOpenChange,
@@ -79,16 +81,23 @@ const AssignSubjectsDialog: React.FC<Props> = ({
 
       setAllSubjects(list);
 
+      // Prefill assigned (only those present in the current filtered list)
       let assignedIds = Array.isArray(section.subject_ids)
         ? section.subject_ids
         : await fetchAssignedIds(section.section_id);
 
       const present = new Set(list.map((s) => s.subj_id));
-      const prechecked = new Set<number>();
-      assignedIds.forEach((id) => {
-        if (present.has(id)) prechecked.add(Number(id));
-      });
-      setSelected(prechecked);
+      const clean = assignedIds.filter((id) => present.has(id)).map(Number);
+
+      // Enforce cap on preload
+      const capped = clean.slice(0, MAX_SUBJECTS);
+      if (clean.length > MAX_SUBJECTS) {
+        toast({
+          title: "Trimmed assigned subjects",
+          description: `Only the first ${MAX_SUBJECTS} subjects are preloaded for editing.`,
+        });
+      }
+      setSelected(new Set(capped));
     } catch (e: any) {
       console.error(e);
       toast({
@@ -105,11 +114,26 @@ const AssignSubjectsDialog: React.FC<Props> = ({
     if (open) loadSubjects();
   }, [open, section?.section_id, section?.grade_level, section?.strand]);
 
-  const toggle = (id: number) => {
+  // Guarded toggle: prevents selecting beyond MAX_SUBJECTS
+  const toggle = (id: number, nextChecked?: boolean) => {
     setSelected((prev) => {
       const n = new Set(prev);
-      if (n.has(id)) n.delete(id);
-      else n.add(id);
+      const isChecked = n.has(id);
+      const wantCheck = typeof nextChecked === "boolean" ? nextChecked : !isChecked;
+
+      if (wantCheck) {
+        if (n.size >= MAX_SUBJECTS && !isChecked) {
+          toast({
+            title: "Limit reached",
+            description: `You can assign up to ${MAX_SUBJECTS} subjects only.`,
+            variant: "destructive",
+          });
+          return n; // no change
+        }
+        n.add(id);
+      } else {
+        n.delete(id);
+      }
       return n;
     });
   };
@@ -118,8 +142,9 @@ const AssignSubjectsDialog: React.FC<Props> = ({
     if (!section) return;
     try {
       setSaving(true);
+      const payloadIds = Array.from(selected).slice(0, MAX_SUBJECTS); // hard cap
       const res = await axios.put(`${apiBase}/sections.php?id=${section.section_id}`, {
-        subj_ids: Array.from(selected),
+        subj_ids: payloadIds,
       });
       if (!res.data?.success) throw new Error(res.data?.message || "Failed to save");
       toast({ title: "Saved", description: "Subjects assigned to section." });
@@ -137,6 +162,8 @@ const AssignSubjectsDialog: React.FC<Props> = ({
     }
   };
 
+  const atCap = selected.size >= MAX_SUBJECTS;
+
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="max-w-3xl">
@@ -150,8 +177,16 @@ const AssignSubjectsDialog: React.FC<Props> = ({
         <div className="rounded-md border">
           <div className="flex items-center justify-between px-3 py-2 border-b bg-muted/30 text-sm">
             <span>Total subjects: {allSubjects.length}</span>
-            <span>Selected: {selected.size}</span>
+            <span>
+              Selected: {selected.size} / {MAX_SUBJECTS}
+            </span>
           </div>
+
+          {atCap && (
+            <div className="px-3 py-2 text-xs text-amber-700 bg-amber-50 border-b">
+              You’ve reached the maximum of {MAX_SUBJECTS} subjects. Uncheck one to pick another.
+            </div>
+          )}
 
           <div className="max-h-[420px] overflow-auto divide-y">
             {loading ? (
@@ -165,12 +200,19 @@ const AssignSubjectsDialog: React.FC<Props> = ({
             ) : (
               allSubjects.map((s) => {
                 const isChecked = selected.has(s.subj_id);
+                const disableThis = !isChecked && atCap; // disable only if not already selected and at cap
                 return (
                   <label
                     key={s.subj_id}
-                    className="flex items-center gap-3 px-4 py-3 hover:bg-muted/40 cursor-pointer"
+                    className={`flex items-center gap-3 px-4 py-3 hover:bg-muted/40 ${
+                      disableThis ? "opacity-60 cursor-not-allowed" : "cursor-pointer"
+                    }`}
                   >
-                    <Checkbox checked={isChecked} onCheckedChange={() => toggle(s.subj_id)} />
+                    <Checkbox
+                      checked={isChecked}
+                      disabled={disableThis}
+                      onCheckedChange={(v) => toggle(s.subj_id, Boolean(v))}
+                    />
                     <div className="flex-1 min-w-0">
                       <div className="flex items-center justify-between">
                         <div className="font-medium truncate">
