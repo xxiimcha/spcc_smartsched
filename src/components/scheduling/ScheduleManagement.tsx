@@ -141,7 +141,12 @@ const STRANDS = ["STEM", "ABM", "HUMSS", "ICT", "GAS"] as const;
 /* ----------------- Component ----------------- */
 const ScheduleManagement: React.FC = () => {
   const { user } = useAuth();
-  const base = user && (user.role === "admin" || user.role === "super_admin") ? "/admin" : "";
+  const base =
+  user && (user.role === "admin" || user.role === "super_admin")
+    ? "/admin"
+    : user && user.role === "acad_head"
+    ? "/acad"
+    : "";
 
   const { settings } = useSystemSettings();
   const navigate = useNavigate();
