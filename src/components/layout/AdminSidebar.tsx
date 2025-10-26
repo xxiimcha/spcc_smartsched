@@ -17,8 +17,7 @@ import {
   CalendarClock,
   Users as UsersIcon,
   FileDown,
-  User as UserIcon, 
-  Eye, EyeOff,
+  User as UserIcon, // (left for potential future use; safe to remove if unused elsewhere)
 } from "lucide-react";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
@@ -43,7 +42,6 @@ import {
   SelectItem,
   SelectValue,
 } from "@/components/ui/select";
-import { Input } from "@/components/ui/input"; // ⬅️ added
 import { useAuth } from "@/contexts/AuthContext";
 import { useToast } from "@/components/ui/use-toast";
 
@@ -107,23 +105,8 @@ const AdminSidebar = ({ isOpen, onToggle }: AdminSidebarProps) => {
   const [schoolYears, setSchoolYears] = useState<string[]>([]);
   const [selectedSY, setSelectedSY] = useState<string>("");
 
-  // ▼ Profile dialog state
-  const [profileOpen, setProfileOpen] = useState(false);
-  const [savingProfile, setSavingProfile] = useState(false);
-  const [fullName, setFullName] = useState<string>("");
-  const [email, setEmail] = useState<string>("");
-  const [username, setUsername] = useState<string>("");
-  const [password, setPassword] = useState<string>("");
-  const [confirmPassword, setConfirmPassword] = useState<string>("");
-
-  const [showPassword, setShowPassword] = useState(false);
-  const [showConfirmPassword, setShowConfirmPassword] = useState(false);
-  
   const API_BASE_URL =
     import.meta.env.VITE_API_BASE_URL || "https://spcc-scheduler.site";
-
-  // If your API route differs, change this:
-  const PROFILE_UPDATE_ENDPOINT = `${API_BASE_URL}/users.php?action=update_self`;
 
   const handleLogout = () => {
     logout();
@@ -166,75 +149,6 @@ const AdminSidebar = ({ isOpen, onToggle }: AdminSidebarProps) => {
         title: "Export failed",
         description: "Unable to generate file. Please try again.",
       });
-    }
-  };
-
-  // ▼ Open profile dialog pre-filling from current user
-  const openProfile = () => {
-    setFullName((user?.name as string) || user?.username || "");
-    setEmail((user?.email as string) || "");
-    setUsername((user?.username as string) || "");
-    setPassword("");
-    setConfirmPassword("");
-    setProfileOpen(true);
-  };
-
-  // ▼ Save profile
-  const handleSaveProfile = async () => {
-    if (!fullName?.trim()) {
-      toast({ variant: "destructive", title: "Name is required." });
-      return;
-    }
-    if (!email?.trim()) {
-      toast({ variant: "destructive", title: "Email is required." });
-      return;
-    }
-    if (!username?.trim()) {
-      toast({ variant: "destructive", title: "Username is required." });
-      return;
-    }
-    if (password && password !== confirmPassword) {
-      toast({ variant: "destructive", title: "Passwords do not match." });
-      return;
-    }
-
-    const payload: Record<string, unknown> = {
-      // backend can derive user_id from session; include if you store it in user
-      user_id: (user as any)?.user_id ?? (user as any)?.id,
-      name: fullName.trim(),
-      email: email.trim(),
-      username: username.trim(),
-      // Only send password if entered (no hashing here; backend will handle as you prefer)
-      ...(password ? { password } : {}),
-    };
-
-    try {
-      setSavingProfile(true);
-      const res = await fetch(PROFILE_UPDATE_ENDPOINT, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        credentials: "include", // keep cookies/session if used in your app
-        body: JSON.stringify(payload),
-      });
-
-      const data = await res.json().catch(() => ({}));
-      if (!res.ok || (data && data.success === false)) {
-        throw new Error(data?.message || "Failed to update profile");
-      }
-
-      toast({ title: "Profile updated", description: "Your changes have been saved." });
-      setProfileOpen(false);
-
-      // Optional: refresh page or pull fresh user details from AuthContext if you expose a refresh
-      // await refreshUser?.();
-    } catch (err: any) {
-      toast({
-        variant: "destructive",
-        title: "Update failed",
-        description: err?.message || "Please try again.",
-      });
-    } finally {
-      setSavingProfile(false);
     }
   };
 
@@ -356,17 +270,17 @@ const AdminSidebar = ({ isOpen, onToggle }: AdminSidebarProps) => {
         </nav>
       </div>
 
-      {/* Footer with Avatar + Profile + Logout */}
+      {/* Footer with Avatar + Logout (Profile removed) */}
       <div className="mt-auto p-4 border-t">
         <div className="flex items-center gap-3">
-          <Avatar className="cursor-pointer" onClick={openProfile}>
+          <Avatar /* no click action since profile is removed */>
             <AvatarImage src="https://api.dicebear.com/7.x/avataaars/svg?seed=admin" />
             <AvatarFallback className="bg-red-600 text-white">AD</AvatarFallback>
           </Avatar>
           {isOpen && (
             <div className="min-w-0">
               <p className="text-sm font-medium truncate">
-                {user?.name || user?.username || "Admin User"}
+                {user?.name || (user as any)?.full_name || user?.username || "Admin User"}
               </p>
               <p className="text-xs text-muted-foreground truncate">
                 {user?.role === "super_admin" ? "Super Admin" : "Admin"}
@@ -376,18 +290,7 @@ const AdminSidebar = ({ isOpen, onToggle }: AdminSidebarProps) => {
         </div>
 
         <div className={cn("flex gap-2 mt-4", !isOpen && "flex-col")}>
-          <Button
-            variant="ghost"
-            className={cn(
-              "w-full justify-start gap-3 text-muted-foreground",
-              !isOpen && "justify-center px-2"
-            )}
-            onClick={openProfile}
-          >
-            <UserIcon className="h-5 w-5" />
-            {isOpen && <span>Profile</span>}
-          </Button>
-
+          {/* Profile button removed */}
           <Button
             variant="ghost"
             className={cn(
@@ -438,102 +341,6 @@ const AdminSidebar = ({ isOpen, onToggle }: AdminSidebarProps) => {
           </DialogFooter>
         </DialogContent>
       </Dialog>
-
-      {/* Profile Dialog */}
-      <Dialog open={profileOpen} onOpenChange={setProfileOpen}>
-        <DialogContent className="sm:max-w-[520px]">
-          <DialogHeader>
-            <DialogTitle>Edit Profile</DialogTitle>
-            <DialogDescription>Update your account details below.</DialogDescription>
-          </DialogHeader>
-
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mt-2">
-            <div className="col-span-1 sm:col-span-2">
-              <label className="text-sm font-medium">Full Name</label>
-              <Input
-                value={fullName}
-                onChange={(e) => setFullName(e.target.value)}
-                placeholder="e.g. Juan Dela Cruz"
-              />
-            </div>
-
-            <div>
-              <label className="text-sm font-medium">Email</label>
-              <Input
-                type="email"
-                value={email}
-                onChange={(e) => setEmail(e.target.value)}
-                placeholder="you@example.com"
-              />
-            </div>
-
-            <div>
-              <label className="text-sm font-medium">Username</label>
-              <Input
-                value={username}
-                onChange={(e) => setUsername(e.target.value)}
-                placeholder="username"
-              />
-            </div>
-
-            {/* 🔒 Password Field with Toggle */}
-            <div className="relative">
-              <label className="text-sm font-medium">New Password (optional)</label>
-              <Input
-                type={showPassword ? "text" : "password"}
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-                placeholder="••••••••"
-                className="pr-10"
-              />
-              <button
-                type="button"
-                onClick={() => setShowPassword((prev) => !prev)}
-                className="absolute right-3 top-8 text-muted-foreground hover:text-foreground"
-              >
-                {showPassword ? (
-                  <EyeOff className="h-4 w-4" />
-                ) : (
-                  <Eye className="h-4 w-4" />
-                )}
-              </button>
-            </div>
-
-            {/* 🔒 Confirm Password Field with Toggle */}
-            <div className="relative">
-              <label className="text-sm font-medium">Confirm Password</label>
-              <Input
-                type={showConfirmPassword ? "text" : "password"}
-                value={confirmPassword}
-                onChange={(e) => setConfirmPassword(e.target.value)}
-                placeholder="••••••••"
-                className="pr-10"
-              />
-              <button
-                type="button"
-                onClick={() => setShowConfirmPassword((prev) => !prev)}
-                className="absolute right-3 top-8 text-muted-foreground hover:text-foreground"
-              >
-                {showConfirmPassword ? (
-                  <EyeOff className="h-4 w-4" />
-                ) : (
-                  <Eye className="h-4 w-4" />
-                )}
-              </button>
-            </div>
-          </div>
-
-          <DialogFooter className="mt-2">
-            <Button variant="ghost" onClick={() => setProfileOpen(false)} disabled={savingProfile}>
-              Cancel
-            </Button>
-            <Button onClick={handleSaveProfile} disabled={savingProfile}>
-              {savingProfile ? "Saving..." : "Save Changes"}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-
     </div>
   );
 };
