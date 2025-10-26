@@ -486,7 +486,10 @@ const ProfessorManagement = () => {
       // Pre-select current assignments intersect preferred
       const assigned = new Set<number>((prof.subject_ids || []).map((v: any) => Number(v)));
       const picks: Record<number, boolean> = {};
-      merged.forEach((m) => { picks[m.subj_id] = assigned.has(m.subj_id); });
+      merged.forEach((m) => {
+        const canPick = m.willingness !== "not_willing";
+        picks[m.subj_id] = canPick && assigned.has(m.subj_id);
+      });
       setAssignPick(picks);
     } catch (e) {
       setPrefList([]); setAssignPick({});
@@ -500,18 +503,31 @@ const ProfessorManagement = () => {
     }
   };
 
-  const togglePick = (sid: number) => setAssignPick((m) => ({ ...m, [sid]: !m[sid] }));
+  const togglePick = (sid: number) => {
+    const item = prefList.find((p) => p.subj_id === sid);
+    if (item?.willingness === "not_willing") return; 
+    setAssignPick((m) => ({ ...m, [sid]: !m[sid] }));
+  };
+
   const setAllPick = (value: boolean) => {
     const next: Record<number, boolean> = {};
-    prefList.forEach((p) => (next[p.subj_id] = value));
+    prefList.forEach((p) => {
+      // Only allow selecting when 'willing'
+      next[p.subj_id] = value ? p.willingness !== "not_willing" : false;
+    });
     setAssignPick(next);
   };
+
 
   const saveAssignment = async () => {
     if (!assignFor) return;
     const chosen = Object.entries(assignPick)
-      .filter(([, v]) => v)
+      .filter(([k, v]) => {
+        const item = prefList.find((p) => p.subj_id === Number(k));
+        return v && item?.willingness !== "not_willing"; // filter out
+      })
       .map(([k]) => Number(k));
+
     try {
       setAssignSaving(true);
       const res = await fetch(`https://spcc-scheduler.site/professors.php?id=${assignFor.id}`, {
@@ -535,6 +551,7 @@ const ProfessorManagement = () => {
       setAssignSaving(false);
     }
   };
+
 
   // ---------- Filtering & pagination ----------
   const filteredProfessors = useMemo(
@@ -1047,6 +1064,12 @@ const ProfessorManagement = () => {
                               className="h-4 w-4"
                               checked={!!assignPick[p.subj_id]}
                               onChange={() => togglePick(p.subj_id)}
+                              disabled={p.willingness === "not_willing"}          // ❗ disable
+                              title={
+                                p.willingness === "not_willing"
+                                  ? "Professor marked as not willing to teach this subject"
+                                  : "Select to assign"
+                              }
                             />
                           </TableCell>
                           <TableCell className="capitalize">{p.proficiency}</TableCell>
