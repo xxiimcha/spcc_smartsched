@@ -274,8 +274,10 @@ const ProfessorSubjects: React.FC = () => {
     base.forEach((_, id) => {
       if (!currentSnapshot.has(id)) ids.push(id);
     });
-    return ids.sort((a, b) => a - b);
-  }, [currentSnapshot]);
+    return ids
+      .filter((id) => !lockedAssigned.has(id))
+      .sort((a, b) => a - b);
+  }, [currentSnapshot, lockedAssigned]);
 
   const updatedIds = useMemo(() => {
     const base = initialSnapshotRef.current;
@@ -473,18 +475,14 @@ const ProfessorSubjects: React.FC = () => {
     if (!professorId) return;
     setClearing(true);
     try {
-      // Keep only locked subjects in local state
       const keptPrefs: PrefMap = {};
       const keptWilling: WillingMap = {};
-
-      // Prefer current choices, fall back to initial snapshot (or defaults)
       lockedAssigned.forEach((id) => {
         const snap = initialSnapshotRef.current.get(id);
         keptPrefs[id] = (prefs[id] ?? snap?.prof ?? "beginner") as Proficiency;
         keptWilling[id] = (willing[id] ?? snap?.will ?? "willing") as Willingness;
       });
 
-      // Push exactly the kept (locked) set to backend
       const payload = Array.from(lockedAssigned).map((id) => ({
         subj_id: id,
         proficiency: keptPrefs[id] as Proficiency,
