@@ -27,6 +27,7 @@ type Willingness = "willing" | "not_willing";
 
 type PrefMap = Record<number, Proficiency | undefined>;
 type WillingMap = Record<number, Willingness | undefined>;
+type Snap = { prof: Proficiency; will?: Willingness };
 
 // SHS (11/12)
 const GRADE_LEVEL_OPTIONS = ["11", "12"];
@@ -51,8 +52,8 @@ const ProfessorSubjects: React.FC = () => {
   const [prefs, setPrefs] = useState<PrefMap>({});
   const [willing, setWilling] = useState<WillingMap>({});
 
-  // keep a snapshot of initially-saved subject IDs (for "newly added" diff)
-  const initialSelectedIdsRef = useRef<Set<number>>(new Set());
+  // full baseline snapshot (for diff)
+  const initialSnapshotRef = useRef<Map<number, Snap>>(new Map());
   const initialLoadedRef = useRef(false);
 
   // ui state
@@ -61,7 +62,7 @@ const ProfessorSubjects: React.FC = () => {
   const [error, setError] = useState<string | null>(null);
 
   // dialogs
-  const [confirmOpen, setConfirmOpen] = useState(false); // pre-save confirm
+  const [confirmOpen, setConfirmOpen] = useState(false);
   const [successOpen, setSuccessOpen] = useState(false);
   const [savedCount, setSavedCount] = useState(0);
 
@@ -115,7 +116,7 @@ const ProfessorSubjects: React.FC = () => {
             const initialWilling: WillingMap = {};
             const arr = Array.isArray(prefRes.data) ? prefRes.data : [];
 
-            const initialIds = new Set<number>();
+            const snap = new Map<number, Snap>();
             arr.forEach((p: any) => {
               const sid = Number(p.subj_id);
               const lvl = String(p.proficiency || "").toLowerCase();
@@ -123,10 +124,12 @@ const ProfessorSubjects: React.FC = () => {
 
               if (["beginner", "intermediate", "advanced"].includes(lvl)) {
                 initial[sid] = lvl as Proficiency;
-                initialIds.add(sid);
+                snap.set(sid, { prof: lvl as Proficiency });
               }
               if (["willing", "not_willing"].includes(w)) {
                 initialWilling[sid] = w as Willingness;
+                const prev = snap.get(sid);
+                snap.set(sid, { ...(prev || ({} as Snap)), will: w as Willingness });
               }
             });
 
@@ -135,7 +138,7 @@ const ProfessorSubjects: React.FC = () => {
             if (Object.keys(initialWilling).length) setWilling(initialWilling);
 
             // snapshot baseline
-            initialSelectedIdsRef.current = initialIds;
+            initialSnapshotRef.current = snap;
             initialLoadedRef.current = true;
           } catch {
             // optional endpoint — ignore
@@ -212,10 +215,96 @@ const ProfessorSubjects: React.FC = () => {
     return rows;
   }, [prefs, willing, subjects]);
 
-  // Only the newly added ones (not present in initial snapshot)
+  // ---- Diff vs baseline for Confirm dialog
+  const currentSnapshot = useMemo(() => {
+    const m = new Map<number, Snap>();
+    Object.entries(prefs).forEach(([idStr, prof]) => {
+      if (!prof) return;
+      const id = Number(idStr);
+      m.set(id, { prof: prof as Proficiency, will: willing[id] });
+    });
+    return m;
+  }, [prefs, willing]);
+
+  const addedIds = useMemo(() => {
+    const base = initialSnapshotRef.current;
+    const ids: number[] = [];
+    currentSnapshot.forEach((_, id) => {
+      if (!base.has(id)) ids.push(id);
+    });
+    return ids.sort((a, b) => a - b);
+  }, [currentSnapshot]);
+
+  const removedIds = useMemo(() => {
+    const base = initialSnapshotRef.current;
+    const ids: number[] = [];
+    base.forEach((_, id) => {
+      if (!currentSnapshot.has(id)) ids.push(id);
+    });
+    return ids.sort((a, b) => a - b);
+  }, [currentSnapshot]);
+
+  const updatedIds = useMemo(() => {
+    const base = initialSnapshotRef.current;
+    const ids: number[] = [];
+    currentSnapshot.forEach((cur, id) => {
+      const prev = base.get(id);
+      if (!prev) return; // added (handled elsewhere)
+      if (prev.prof !== cur.prof || (prev.will || "") !== (cur.will || "")) {
+        ids.push(id);
+      }
+    });
+    return ids.sort((a, b) => a - b);
+  }, [currentSnapshot]);
+
+  // helpers to render rows for each category
+  const findSubj = (id: number) => subjects.find((s) => s.id === id);
+  const toRowFromSnap = (id: number, snap: Snap | undefined) => {
+    const subj = findSubj(id);
+    return {
+      id,
+      code: subj?.code ?? `#${id}`,
+      name: subj?.name ?? "Unknown subject",
+      proficiency: snap?.prof,
+      willingness: snap?.will,
+      strand: subj?.strand,
+      gradeLevel: subj?.gradeLevel,
+    };
+  };
+
+  const addedRows = useMemo(
+    () => addedIds.map((id) => toRowFromSnap(id, currentSnapshot.get(id))),
+    [addedIds, currentSnapshot]
+  );
+
+  const removedRows = useMemo(
+    () => removedIds.map((id) => toRowFromSnap(id, initialSnapshotRef.current.get(id))),
+    [removedIds]
+  );
+
+  const updatedRows = useMemo(() => {
+    return updatedIds.map((id) => {
+      const prev = initialSnapshotRef.current.get(id);
+      const cur = currentSnapshot.get(id);
+      const subj = findSubj(id);
+      return {
+        id,
+        code: subj?.code ?? `#${id}`,
+        name: subj?.name ?? "Unknown subject",
+        oldProf: prev?.prof,
+        newProf: cur?.prof,
+        oldWill: prev?.will,
+        newWill: cur?.will,
+        strand: subj?.strand,
+        gradeLevel: subj?.gradeLevel,
+      };
+    });
+  }, [updatedIds, currentSnapshot]);
+
+  // Only the newly added ones (kept for total count in dialog header)
   const newSelectionSummary = useMemo(() => {
-    const baseline = initialSelectedIdsRef.current;
-    return selectionSummary.filter((row) => !baseline.has(row.id));
+    const base = initialSnapshotRef.current;
+    return selectionSummary.filter((row) => !base.has(row.id));
   }, [selectionSummary]);
 
   const handleToggle = (id: number) => {
@@ -248,7 +337,7 @@ const ProfessorSubjects: React.FC = () => {
     setStrand("all");
   };
 
-  // Open pre-save confirmation dialog (shows only new selections)
+  // Open pre-save confirmation dialog
   const handleSave = () => {
     if (missingWillingIds.length > 0) {
       toast({
@@ -291,8 +380,10 @@ const ProfessorSubjects: React.FC = () => {
         setSuccessOpen(true);
         toast({ title: "Preferences saved", description: "Your subject preferences have been updated." });
 
-        // After a successful save, refresh the baseline so next confirm only shows truly *new* adds
-        initialSelectedIdsRef.current = new Set(selections.map((s) => s.subj_id));
+        // refresh baseline snapshot to current
+        const next = new Map<number, Snap>();
+        selections.forEach((s) => next.set(s.subj_id, { prof: s.proficiency, will: s.willingness }));
+        initialSnapshotRef.current = next;
       } else {
         toast({ title: "Save failed", description: res.message || "Please try again.", variant: "destructive" });
       }
@@ -326,8 +417,7 @@ const ProfessorSubjects: React.FC = () => {
 
       setPrefs({});
       setWilling({});
-      // also reset baseline
-      initialSelectedIdsRef.current = new Set();
+      initialSnapshotRef.current = new Map();
       toast({ title: "Preferences cleared", description: "All saved subject preferences have been removed." });
       setClearOpen(false);
     } catch (e: any) {
@@ -603,33 +693,32 @@ const ProfessorSubjects: React.FC = () => {
         </Card>
       </div>
 
-      {/* PRE-SAVE CONFIRMATION DIALOG — shows ONLY newly added subjects */}
+      {/* PRE-SAVE CONFIRMATION DIALOG — shows Added / Updated / Removed */}
       <AlertDialog open={confirmOpen} onOpenChange={setConfirmOpen}>
         <AlertDialogContent>
           <AlertDialogHeader>
             <AlertDialogTitle>Confirm saving preferences?</AlertDialogTitle>
             <AlertDialogDescription asChild>
-              <div className="space-y-3">
+              <div className="space-y-4">
                 <p>
                   You’re about to save <span className="font-medium">{selectionSummary.length}</span>{" "}
                   {selectionSummary.length === 1 ? "preference" : "preferences"} for your account.
                 </p>
 
+                {/* Added */}
                 <div className="rounded-md border">
                   <div className="px-3 py-2 border-b text-sm font-medium">
-                    Newly added subjects
+                    Added ({addedRows.length})
                   </div>
-                  <div className="max-h-[260px] overflow-auto p-2 space-y-2">
-                    {newSelectionSummary.length === 0 ? (
-                      <div className="text-sm text-muted-foreground px-1 py-1">
-                        No newly added subjects. (Existing selections may be updated.)
-                      </div>
+                  <div className="max-h-[180px] overflow-auto p-2 space-y-2">
+                    {addedRows.length === 0 ? (
+                      <div className="text-sm text-muted-foreground px-1 py-1">No new subjects added.</div>
                     ) : (
-                      newSelectionSummary.map((row) => (
+                      addedRows.map((row) => (
                         <div key={row.id} className="text-sm">
                           <div className="font-medium">{row.code} — {row.name}</div>
                           <div className="mt-1 flex flex-wrap gap-1">
-                            <ProficiencyBadge value={row.proficiency} />
+                            {row.proficiency && <ProficiencyBadge value={row.proficiency} />}
                             <WillingBadge value={row.willingness} />
                             {row.gradeLevel ? <Badge variant="outline">G{row.gradeLevel}</Badge> : null}
                             {row.strand ? <Badge variant="outline">{row.strand}</Badge> : null}
@@ -639,6 +728,81 @@ const ProfessorSubjects: React.FC = () => {
                     )}
                   </div>
                 </div>
+
+                {/* Updated */}
+                <div className="rounded-md border">
+                  <div className="px-3 py-2 border-b text-sm font-medium">
+                    Updated ({updatedRows.length})
+                  </div>
+                  <div className="max-h-[180px] overflow-auto p-2 space-y-2">
+                    {updatedRows.length === 0 ? (
+                      <div className="text-sm text-muted-foreground px-1 py-1">No changes to existing subjects.</div>
+                    ) : (
+                      updatedRows.map((row) => (
+                        <div key={row.id} className="text-sm">
+                          <div className="font-medium">{row.code} — {row.name}</div>
+                          <div className="mt-1 flex flex-wrap items-center gap-1">
+                            {/* Proficiency diff */}
+                            {row.oldProf && row.newProf && row.oldProf !== row.newProf ? (
+                              <>
+                                <Badge variant="secondary" className="capitalize">{row.oldProf}</Badge>
+                                <span className="text-xs">→</span>
+                                <ProficiencyBadge value={row.newProf} />
+                              </>
+                            ) : row.newProf ? (
+                              <ProficiencyBadge value={row.newProf} />
+                            ) : null}
+
+                            {/* Willingness diff */}
+                            {row.oldWill !== row.newWill ? (
+                              <>
+                                <WillingBadge value={row.oldWill} />
+                                <span className="text-xs">→</span>
+                                <WillingBadge value={row.newWill} />
+                              </>
+                            ) : (
+                              <WillingBadge value={row.newWill} />
+                            )}
+
+                            {row.gradeLevel ? <Badge variant="outline">G{row.gradeLevel}</Badge> : null}
+                            {row.strand ? <Badge variant="outline">{row.strand}</Badge> : null}
+                          </div>
+                        </div>
+                      ))
+                    )}
+                  </div>
+                </div>
+
+                {/* Removed */}
+                <div className="rounded-md border">
+                  <div className="px-3 py-2 border-b text-sm font-medium">
+                    Removed ({removedRows.length})
+                  </div>
+                  <div className="max-h-[180px] overflow-auto p-2 space-y-2">
+                    {removedRows.length === 0 ? (
+                      <div className="text-sm text-muted-foreground px-1 py-1">No subjects removed.</div>
+                    ) : (
+                      removedRows.map((row) => (
+                        <div key={row.id} className="text-sm">
+                          <div className="font-medium line-through opacity-70">{row.code} — {row.name}</div>
+                          <div className="mt-1 flex flex-wrap gap-1 opacity-70">
+                            {row.proficiency && <ProficiencyBadge value={row.proficiency} />}
+                            <WillingBadge value={row.willingness} />
+                            {row.gradeLevel ? <Badge variant="outline">G{row.gradeLevel}</Badge> : null}
+                            {row.strand ? <Badge variant="outline">{row.strand}</Badge> : null}
+                          </div>
+                        </div>
+                      ))
+                    )}
+                  </div>
+                </div>
+
+                {/* If truly no diff (rare) */}
+                {addedRows.length === 0 && updatedRows.length === 0 && removedRows.length === 0 && (
+                  <div className="text-sm text-muted-foreground">
+                    No changes detected. You can still save to refresh your preferences.
+                  </div>
+                )}
               </div>
             </AlertDialogDescription>
           </AlertDialogHeader>
@@ -654,7 +818,7 @@ const ProfessorSubjects: React.FC = () => {
         </AlertDialogContent>
       </AlertDialog>
 
-      {/* Success Message Box with Summary (unchanged) */}
+      {/* Success Message Box with Summary */}
       <AlertDialog open={successOpen} onOpenChange={setSuccessOpen}>
         <AlertDialogContent>
           <AlertDialogHeader>
