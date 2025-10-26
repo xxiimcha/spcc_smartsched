@@ -85,8 +85,9 @@ interface Section {
   room_number?: number | null;
   room_type?: string | null;
   room_capacity?: number | null;
-  subject_ids?: number[];          // <-- from API (decoded JSON)
+  subject_ids?: number[];          // from API (decoded JSON)
   subject_ids_raw?: string | null; // optional raw JSON from API
+  schedule_count?: number;         // <-- API provides this, use it to block deletion
 }
 
 const API_BASE = "https://spcc-scheduler.site";
@@ -206,8 +207,30 @@ const SectionManagement: React.FC = () => {
     return strands.length > 0 ? strands : ["none"];
   }, [sections]);
 
+  const blockDeletionIfScheduled = (section: Section): boolean => {
+    const count = Number(section.schedule_count ?? 0);
+    if (count > 0) {
+      toast({
+        title: "Cannot delete section",
+        description: `This section has ${count} schedule${count === 1 ? "" : "s"} assigned. Remove those schedules first.`,
+        variant: "destructive",
+      });
+      return true;
+    }
+    return false;
+  };
+
   const handleDelete = async () => {
     if (!sectionToDelete) return;
+
+    // Double-guard: check latest state before calling API
+    const current = sections.find((s) => s.section_id === sectionToDelete);
+    if (current && blockDeletionIfScheduled(current)) {
+      setIsDeleteDialogOpen(false);
+      setSectionToDelete(null);
+      return;
+    }
+
     try {
       const response = await axios.delete(`${API_BASE}/sections.php?id=${sectionToDelete}`);
       if (response.data.success || response.data.status === "success") {
@@ -381,6 +404,7 @@ const SectionManagement: React.FC = () => {
             const room = getRoom(section);
             const assigned = !!room;
             const hasAssignedSubjects = Array.isArray(section.subject_ids) && section.subject_ids.length > 0;
+            const schedCount = Number(section.schedule_count ?? 0);
 
             return (
               <Card
@@ -396,6 +420,7 @@ const SectionManagement: React.FC = () => {
                       <CardDescription className="mt-1">
                         Grade {section.grade_level}
                         {section.strand ? ` • ${section.strand}` : ""}
+                        {` • ${schedCount} schedule${schedCount === 1 ? "" : "s"}`}
                       </CardDescription>
                     </div>
 
@@ -414,15 +439,21 @@ const SectionManagement: React.FC = () => {
                             <span className="sr-only">Open menu</span>
                           </Button>
                         </DropdownMenuTrigger>
-                        <DropdownMenuContent align="end" className="w-44">
+                        <DropdownMenuContent align="end" className="w-48">
                           <DropdownMenuItem onClick={() => handleEdit(section)}>Edit</DropdownMenuItem>
                           <DropdownMenuItem onClick={() => openAssign(section)}>
                             {hasAssignedSubjects ? "Update Subjects" : "Assign Subjects"}
                           </DropdownMenuItem>
                           <DropdownMenuSeparator />
                           <DropdownMenuItem
-                            className="text-red-600 focus:text-red-700"
+                            className={`${
+                              schedCount > 0
+                                ? "text-muted-foreground cursor-not-allowed"
+                                : "text-red-600 focus:text-red-700"
+                            }`}
                             onClick={() => {
+                              // Block right away if schedules exist
+                              if (blockDeletionIfScheduled(section)) return;
                               setSectionToDelete(section.section_id);
                               setIsDeleteDialogOpen(true);
                             }}
@@ -528,8 +559,6 @@ const SectionManagement: React.FC = () => {
         apiBase={API_BASE}
         onSaved={fetchSections}
       />
-
-
 
       {/* View Assigned Subjects dialog */}
       <Dialog open={viewOpen} onOpenChange={setViewOpen}>
