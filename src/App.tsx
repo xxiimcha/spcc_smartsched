@@ -3,30 +3,48 @@ import { Suspense, lazy } from "react";
 import { Routes, Route, Navigate } from "react-router-dom";
 import { AuthProvider, useAuth } from "./contexts/AuthContext";
 import { SystemSettingsProvider } from "./contexts/SystemSettingsContext";
-import AppLayout from "./components/layout/AppLayout";
-import AdminLayout from "./components/layout/AdminLayout";
 
-// Lazy load pages
+// Layouts
+import AppLayout from "./components/layout/AppLayout";        // ← will be used at /acad/*
+import AdminLayout from "./components/layout/AdminLayout";
+const ProfessorLayout = lazy(() => import("./components/layout/ProfessorLayout"));
+
+// Pages (reuse your existing admin pages under /acad as needed)
 const Dashboard   = lazy(() => import("./pages/Dashboard"));
 const Professors  = lazy(() => import("./pages/Professors"));
 const Subjects    = lazy(() => import("./pages/Subjects"));
 const Scheduling  = lazy(() => import("./pages/Scheduling"));
-const Login       = lazy(() => import("./pages/Login"));
+const ScheduleNew = lazy(() => import("./pages/ScheduleNew"));
 const Settings    = lazy(() => import("./pages/Settings"));
 const Sections    = lazy(() => import("./pages/Sections"));
 const Rooms       = lazy(() => import("./pages/Rooms"));
-const ScheduleNew = lazy(() => import("./pages/ScheduleNew"));
-const Users       = lazy(() => import("./pages/Users"));
 
-const ProfessorLayout    = lazy(() => import("./components/layout/ProfessorLayout"));
-const ProfessorDashboard = lazy(() => import("./pages/ProfessorDashboard"));
-const ProfessorSubjects  = lazy(() => import("./pages/ProfessorSubjects"));
+const Login               = lazy(() => import("./pages/Login"));
+const ProfessorDashboard  = lazy(() => import("./pages/ProfessorDashboard"));
+const ProfessorSubjects   = lazy(() => import("./pages/ProfessorSubjects"));
 
-/** ✅ acad_head can access /admin */
-const ADMIN_ROLES = ["admin", "super_admin", "acad_head"] as const;
-/** (If you intend to have a separate root app for acad_head, move it here and change login redirect) */
-const APP_ROLES   = ["acad_head"] as const; // keep if you still use root area for acad_head
-const PROFESSOR_ROLES = ["professor"] as const;
+// Gates
+const ADMIN_ROLES      = ["admin", "super_admin"] as const; // acad_head NOT here
+const ACAD_ROLES       = ["acad_head"] as const;
+const PROFESSOR_ROLES  = ["professor"] as const;
+
+// Smart landing based on role
+function RoleLanding() {
+  const { isAuthenticated, user } = useAuth();
+  if (!isAuthenticated) return <Navigate to="/pages/login" replace />;
+
+  switch (user?.role) {
+    case "super_admin":
+    case "admin":
+      return <Navigate to="/admin" replace />;
+    case "acad_head":
+      return <Navigate to="/acad" replace />;   // ✅ land at /acad
+    case "professor":
+      return <Navigate to="/prof" replace />;
+    default:
+      return <Navigate to="/pages/login" replace />;
+  }
+}
 
 const AppRoutes = () => {
   const { isAuthenticated, user } = useAuth();
@@ -37,15 +55,16 @@ const AppRoutes = () => {
         {/* Public */}
         <Route path="/pages/login" element={<Login />} />
 
-        {/* Admin area (super_admin, admin, acad_head) */}
+        {/* Default landing */}
+        <Route path="/" element={<RoleLanding />} />
+
+        {/* ---------- Admin area (admin, super_admin) ---------- */}
         <Route
           path="/admin/*"
           element={
-            isAuthenticated && ADMIN_ROLES.includes(user?.role as any) ? (
-              <AdminLayout />
-            ) : (
-              <Navigate to="/pages/login" replace />
-            )
+            isAuthenticated && ADMIN_ROLES.includes(user?.role as any)
+              ? <AdminLayout />
+              : <Navigate to="/pages/login" replace />
           }
         >
           <Route index element={<Dashboard />} />
@@ -56,23 +75,21 @@ const AppRoutes = () => {
           <Route path="sections" element={<Sections />} />
           <Route path="scheduling" element={<Scheduling />} />
           <Route path="scheduling/new" element={<ScheduleNew />} />
-          <Route path="users" element={<Users />} />
           <Route path="settings" element={<Settings />} />
+          {/* keep Users if admin-only */}
+          {/* <Route path="users" element={<Users />} /> */}
         </Route>
 
-        {/* Main app (only if you truly want acad_head on root) */}
+        {/* ---------- Acad area (acad_head) using AppLayout ---------- */}
         <Route
-          path="/*"
+          path="/acad/*"
           element={
-            isAuthenticated && APP_ROLES.includes(user?.role as any) ? (
-              <AppLayout />
-            ) : isAuthenticated && ADMIN_ROLES.includes(user?.role as any) ? (
-              <Navigate to="/admin" replace />
-            ) : (
-              <Navigate to="/pages/login" replace />
-            )
+            isAuthenticated && ACAD_ROLES.includes(user?.role as any)
+              ? <AppLayout />           // ✅ your AppLayout shown at /acad
+              : <Navigate to="/pages/login" replace />
           }
         >
+          {/* Reuse whichever pages you want visible to acad_head */}
           <Route index element={<Dashboard />} />
           <Route path="dashboard" element={<Dashboard />} />
           <Route path="professors" element={<Professors />} />
@@ -81,17 +98,16 @@ const AppRoutes = () => {
           <Route path="sections" element={<Sections />} />
           <Route path="scheduling" element={<Scheduling />} />
           <Route path="scheduling/new" element={<ScheduleNew />} />
+          {/* Avoid admin-only pages here (e.g., Users) unless intended */}
         </Route>
 
-        {/* Professor area */}
+        {/* ---------- Professor area ---------- */}
         <Route
           path="/prof/*"
           element={
-            isAuthenticated && PROFESSOR_ROLES.includes(user?.role as any) ? (
-              <ProfessorLayout />
-            ) : (
-              <Navigate to="/pages/login" replace />
-            )
+            isAuthenticated && PROFESSOR_ROLES.includes(user?.role as any)
+              ? <ProfessorLayout />
+              : <Navigate to="/pages/login" replace />
           }
         >
           <Route index element={<ProfessorDashboard />} />
@@ -100,7 +116,7 @@ const AppRoutes = () => {
         </Route>
 
         {/* Fallback */}
-        <Route path="*" element={<Navigate to="/admin" replace />} />
+        <Route path="*" element={<RoleLanding />} />
       </Routes>
     </Suspense>
   );

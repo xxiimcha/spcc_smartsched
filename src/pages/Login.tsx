@@ -1,11 +1,19 @@
+// src/pages/Login.tsx
 import React, { useState, useRef, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import { useAuth } from "../contexts/AuthContext";
 import { authService } from "../services/authService";
 import type { User, Role } from "../contexts/AuthContext";
 import {
-  Eye, EyeOff, AlertCircle, CheckCircle2, Sun, Moon,
-  User2, Lock, Shield
+  Eye,
+  EyeOff,
+  AlertCircle,
+  CheckCircle2,
+  Sun,
+  Moon,
+  User2,
+  Lock,
+  Shield,
 } from "lucide-react";
 import { motion } from "framer-motion";
 
@@ -17,7 +25,8 @@ const normalizeRole = (r: RawRole): Role => {
   const v = String(r || "").toLowerCase();
   if (v === "super_admin" || v === "super-admin") return "super_admin";
   if (v === "admin") return "admin";
-  if (v === "acad_head" || v === "school_head" || v === "acad-head") return "acad_head";
+  if (v === "acad_head" || v === "school_head" || v === "acad-head")
+    return "acad_head";
   if (v === "professor" || v === "professors") return "professor";
   return "professor";
 };
@@ -68,7 +77,7 @@ const Login: React.FC = () => {
     (localStorage.getItem(THEME_KEY) as "light" | "dark") || "light"
   );
 
-  // security nicety: brief lockout after repeated failures (client-side)
+  // client-side brief lockout after repeated failures
   const [failCount, setFailCount] = useState(0);
   const [lockUntil, setLockUntil] = useState<number | null>(null);
 
@@ -127,7 +136,10 @@ const Login: React.FC = () => {
     setIsError(false);
 
     try {
-      const result: AuthResponse = await authService.login({ username: uname, password: pwd });
+      const result: AuthResponse = await authService.login({
+        username: uname,
+        password: pwd,
+      });
 
       if (result?.success && result.user) {
         const role = normalizeRole(result.user.role);
@@ -145,14 +157,17 @@ const Login: React.FC = () => {
         setIsError(false);
         setMessage("Login successful! Redirecting...");
 
-        const to =
-          role === "super_admin" || role === "admin" || role === "acad_head"
-            ? "/admin"
-            : role === "professor"
-            ? "/prof"
-            : "/";
+        // --- FIX: send acad_head to its own area instead of /admin ---
+        const routeByRole: Record<Role, string> = {
+          super_admin: "/admin",
+          admin: "/admin",
+          acad_head: "/acad",   // <— academic head landing route
+          professor: "/prof",
+        };
 
+        const to = routeByRole[role] ?? "/";
         redirectTimer.current = window.setTimeout(() => navigate(to), 600);
+
         setFailCount(0);
         setLockUntil(null);
         return;
@@ -172,7 +187,10 @@ const Login: React.FC = () => {
       }
     } catch (err: any) {
       setIsError(true);
-      setMessage(getErrorMessage(err) || "Invalid credentials or account inactive. Please try again.");
+      setMessage(
+        getErrorMessage(err) ||
+          "Invalid credentials or account inactive. Please try again."
+      );
       const nextFails = failCount + 1;
       setFailCount(nextFails);
       if (nextFails >= 3) {
@@ -185,7 +203,8 @@ const Login: React.FC = () => {
     }
   };
 
-  const canSubmit = username.trim().length > 0 && password.length > 0 && !isLoading && !isLocked;
+  const canSubmit =
+    username.trim().length > 0 && password.length > 0 && !isLoading && !isLocked;
 
   // press-and-hold “peek” handlers for password
   const onPeekDown = () => setShowPassword(true);
@@ -199,7 +218,10 @@ const Login: React.FC = () => {
         className="absolute inset-0 bg-cover bg-center"
         style={{ backgroundImage: `url(${background})` }}
       />
-      <div aria-hidden="true" className="absolute inset-0 bg-white/60 dark:bg-black/60 backdrop-blur-sm" />
+      <div
+        aria-hidden="true"
+        className="absolute inset-0 bg-white/60 dark:bg-black/60 backdrop-blur-sm"
+      />
 
       {/* Animated soft blobs */}
       <motion.div
@@ -220,11 +242,13 @@ const Login: React.FC = () => {
         <button
           type="button"
           onClick={() => setTheme(theme === "dark" ? "light" : "dark")}
-          className="inline-flex items-center gap-2 rounded-full bg-white/70 px-3 py-2 text-sm shadow ring-1 ring-black/5 backdrop-blur hover:bg-white dark:bg-black/40 dark:hover:bg-black/50"
+          className="inline-flex items-center gap-2 rounded-full bg-white/70 px-3 py-2 text-sm shadow ring-1 ring-black/5 backdrop-blur hover:bg-white dark:bg-black/40 dark:hover:bg.black/50"
           aria-label="Toggle theme"
         >
           {theme === "dark" ? <Sun className="h-4 w-4" /> : <Moon className="h-4 w-4" />}
-          <span className="hidden sm:inline">{theme === "dark" ? "Light mode" : "Dark mode"}</span>
+          <span className="hidden sm:inline">
+            {theme === "dark" ? "Light mode" : "Dark mode"}
+          </span>
         </button>
       </div>
 
@@ -239,19 +263,25 @@ const Login: React.FC = () => {
           <div className="hidden w-[45%] flex-col justify-between bg-[#010662] p-10 text-white md:flex">
             <div>
               <img src={logo} className="w-24 drop-shadow-sm" alt="SPCC Logo" />
-              <h1 className="mt-6 text-3xl font-extrabold tracking-tight">SPCC SmartSched</h1>
-              <p className="text-sm text-white/80">Systems Plus Computer College</p>
+              <h1 className="mt-6 text-3xl font-extrabold tracking-tight">
+                SPCC SmartSched
+              </h1>
+              <p className="text-sm text-white/80">
+                Systems Plus Computer College
+              </p>
             </div>
 
             <div className="space-y-4">
               <div className="flex items-start gap-3">
                 <Shield className="mt-0.5 h-5 w-5 opacity-90" />
                 <p className="text-sm text-white/85">
-                  Secure access for administrators and faculty. Your sessions are protected.
+                  Secure access for administrators and faculty. Your sessions are
+                  protected.
                 </p>
               </div>
               <div className="rounded-lg bg-white/10 p-3 text-xs leading-relaxed text-white/80 ring-1 ring-white/15">
-                Tip: You can <span className="font-semibold">press and hold</span> the eye icon to peek at your password.
+                Tip: You can <span className="font-semibold">press and hold</span>{" "}
+                the eye icon to peek at your password.
               </div>
             </div>
 
@@ -266,12 +296,18 @@ const Login: React.FC = () => {
             <div className="mb-6 flex items-center gap-3 md:hidden">
               <img src={logo} className="w-10" alt="SPCC Logo" />
               <div>
-                <h1 className="text-xl font-semibold leading-tight text-gray-900 dark:text-white">SPCC SmartSched</h1>
-                <p className="text-xs text-gray-500 -mt-0.5">Systems Plus Computer College</p>
+                <h1 className="text-xl font-semibold leading-tight text-gray-900 dark:text-white">
+                  SPCC SmartSched
+                </h1>
+                <p className="text-xs text-gray-500 -mt-0.5">
+                  Systems Plus Computer College
+                </p>
               </div>
             </div>
 
-            <h2 className="text-2xl font-bold tracking-tight text-gray-900 dark:text-white">Welcome back</h2>
+            <h2 className="text-2xl font-bold tracking-tight text-gray-900 dark:text-white">
+              Welcome back
+            </h2>
             <p className="mb-6 text-gray-600 dark:text-gray-300">
               Enter your credentials to access your account
             </p>
@@ -303,14 +339,18 @@ const Login: React.FC = () => {
             {/* Lockout notice */}
             {isLocked && (
               <div className="mb-4 rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-800 dark:border-amber-900/50 dark:bg-amber-900/20 dark:text-amber-300">
-                Too many attempts. Please wait {lockRemainingSec}s before trying again.
+                Too many attempts. Please wait {lockRemainingSec}s before trying
+                again.
               </div>
             )}
 
             <form onSubmit={handleLogin} className="space-y-5">
               {/* Username */}
               <div>
-                <label htmlFor="username" className="mb-1.5 block text-sm font-medium text-gray-800 dark:text-gray-200">
+                <label
+                  htmlFor="username"
+                  className="mb-1.5 block text-sm font-medium text-gray-800 dark:text-gray-200"
+                >
                   Username or Email
                 </label>
                 <div className="relative">
@@ -334,9 +374,12 @@ const Login: React.FC = () => {
                 </div>
               </div>
 
-              {/* Password with toggle + press-and-hold peek */}
+              {/* Password */}
               <div>
-                <label htmlFor="password" className="mb-1.5 block text-sm font-medium text-gray-800 dark:text-gray-200">
+                <label
+                  htmlFor="password"
+                  className="mb-1.5 block text-sm font-medium text-gray-800 dark:text-gray-200"
+                >
                   Password
                 </label>
                 <div className="relative">
@@ -372,12 +415,19 @@ const Login: React.FC = () => {
                     aria-pressed={showPassword}
                     title="Click to toggle. Press & hold to peek."
                   >
-                    {showPassword ? <EyeOff className="h-5 w-5 text-gray-600 dark:text-gray-200" /> : <Eye className="h-5 w-5 text-gray-600 dark:text-gray-200" />}
+                    {showPassword ? (
+                      <EyeOff className="h-5 w-5 text-gray-600 dark:text-gray-200" />
+                    ) : (
+                      <Eye className="h-5 w-5 text-gray-600 dark:text-gray-200" />
+                    )}
                   </button>
                 </div>
 
                 {capsLockOn && (
-                  <p id="caps-indicator" className="mt-2 text-xs text-amber-600 dark:text-amber-300">
+                  <p
+                    id="caps-indicator"
+                    className="mt-2 text-xs text-amber-600 dark:text-amber-300"
+                  >
                     Caps Lock is ON
                   </p>
                 )}
