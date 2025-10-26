@@ -1,8 +1,8 @@
-import React, { useEffect, useMemo, useRef, useState } from "react";
+import React, { useMemo, useState } from "react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import * as z from "zod";
-import { X, Plus, RefreshCw, Eye, EyeOff } from "lucide-react";
+import { RefreshCw, Eye, EyeOff } from "lucide-react";
 import SuccessMessage from "../popupmsg/SuccessMessage";
 import ErrorMessage from "../popupmsg/ErrorMessage";
 import {
@@ -33,7 +33,6 @@ const optionalNonEmpty = (schema: z.ZodTypeAny) =>
 const phoneRegex = /^(?:\+?63|0)?(?:\d[\s-]?){9,12}\d$/;
 
 // Allow letters (incl. accents), spaces, dots, apostrophes, and hyphens.
-// Disallows digits and other symbols.
 const nameRegex = /^[A-Za-zÀ-ÖØ-öø-ÿ\s.'-]+$/;
 
 const makeSchema = (isEdit: boolean) =>
@@ -62,9 +61,6 @@ const makeSchema = (isEdit: boolean) =>
     phone: optionalNonEmpty(
       z.string().regex(phoneRegex, { message: "Please enter a valid phone number" })
     ),
-    qualifications: z
-      .array(z.string())
-      .min(1, { message: "Add at least one specialization" }),
   });
 
 interface ProfessorFormProps {
@@ -110,11 +106,8 @@ const ProfessorForm = ({
     username: "",
     email: "",
     phone: "",
-    qualifications: [],
   },
 }: ProfessorFormProps) => {
-  const [qualifications, setQualifications] = useState<string[]>(initialData.qualifications || []);
-  const [newQualification, setNewQualification] = useState("");
   const [showPassword, setShowPassword] = useState(false);
 
   const [isSuccessDialogOpen, setIsSuccessDialogOpen] = useState(false);
@@ -133,7 +126,6 @@ const ProfessorForm = ({
     defaultValues: {
       ...initialData,
       password: "",
-      qualifications: initialData.qualifications || [],
     },
     mode: "onSubmit",
   });
@@ -145,10 +137,7 @@ const ProfessorForm = ({
       password: "",
       email: "",
       phone: "",
-      qualifications: [],
     });
-    setQualifications([]);
-    setNewQualification("");
     setShowPassword(false);
   };
 
@@ -164,21 +153,6 @@ const ProfessorForm = ({
     setShowPassword(true);
   };
 
-  const addQualification = () => {
-    const q = newQualification.trim();
-    if (!q) return;
-    const next = Array.from(new Set([...qualifications, q]));
-    setQualifications(next);
-    form.setValue("qualifications", next, { shouldValidate: true });
-    setNewQualification("");
-  };
-
-  const removeQualification = (index: number) => {
-    const updated = qualifications.filter((_, i) => i !== index);
-    setQualifications(updated);
-    form.setValue("qualifications", updated, { shouldValidate: true });
-  };
-
   const isNoChange = useMemo(() => {
     const values = form.getValues();
     if (!isEdit) return false;
@@ -187,10 +161,7 @@ const ProfessorForm = ({
       (values.username || "") === (initialData.username || "") &&
       (values.email || "") === (initialData.email || "") &&
       (values.phone || "") === (initialData.phone || "");
-    const qualsSame =
-      JSON.stringify((values.qualifications || []).map((s) => s.trim())) ===
-      JSON.stringify((initialData.qualifications || []).map((s) => s.trim()));
-    return baseSame && qualsSame;
+    return baseSame;
   }, [form.watch(), initialData, isEdit]);
 
   const handleSubmit = async (data: z.infer<ReturnType<typeof makeSchema>>) => {
@@ -202,7 +173,6 @@ const ProfessorForm = ({
         username: data.username.trim(),
         email: data.email.trim(),
         phone: data.phone || "",
-        qualifications: qualifications.map((q) => q.trim()).filter(Boolean),
       };
 
       if (!isEdit || (data.password && String(data.password).trim() !== "")) {
@@ -258,10 +228,7 @@ const ProfessorForm = ({
 
   // keep exactly which characters are allowed
   const NAME_ALLOWED = /[^A-Za-zÀ-ÖØ-öø-ÿ\s.'-]/g; // anything NOT allowed
-
   const sanitizeName = (v: string) => v.replace(NAME_ALLOWED, "");
-
-  // Block numeric keys (top row & numpad)
   const isDigitKey = (e: React.KeyboardEvent<HTMLInputElement>) => {
     const { key, code } = e;
     return /[0-9]/.test(key) || /^Numpad[0-9]$/.test(code);
@@ -314,19 +281,16 @@ const ProfessorForm = ({
                           {...field}
                           autoComplete="name"
                           inputMode="text"
-                          pattern={nameRegex.source} // keeps browser validation hint
+                          pattern={nameRegex.source}
                           onKeyDown={(e) => {
                             if (isDigitKey(e)) {
-                              e.preventDefault(); // block typing digits
+                              e.preventDefault();
                             }
                           }}
                           onChange={(e) => {
                             const cleaned = sanitizeName(e.target.value);
-                            // only update if something changed (prevents cursor jumps)
                             if (cleaned !== e.target.value) {
-                              const pos = e.target.selectionStart || 0;
                               field.onChange(cleaned);
-                              // let the browser update caret naturally on next paint
                             } else {
                               field.onChange(e);
                             }
@@ -345,7 +309,6 @@ const ProfessorForm = ({
                             field.onBlur();
                             const uname = form.getValues("username");
                             if (!uname) {
-                              // regenerate username if blank
                               const candidate = sanitizeName(form.getValues("name") || "");
                               if (candidate.trim()) {
                                 form.setValue("username", makeUsername(candidate), {
@@ -361,7 +324,6 @@ const ProfessorForm = ({
                     </FormItem>
                   )}
                 />
-
 
                 {/* Username */}
                 <FormField
@@ -459,55 +421,6 @@ const ProfessorForm = ({
                         <Input placeholder="+63 923 456 7899" {...field} />
                       </FormControl>
                       <FormMessage />
-                    </FormItem>
-                  )}
-                />
-              </div>
-
-              {/* Qualifications */}
-              <div className="space-y-4">
-                <FormField
-                  control={form.control}
-                  name="qualifications"
-                  render={() => (
-                    <FormItem>
-                      <FormLabel>Specialization</FormLabel>
-                      <div className="flex items-center space-x-2">
-                        <Input
-                          placeholder="Add Specialization"
-                          value={newQualification}
-                          onChange={(e) => setNewQualification(e.target.value)}
-                          onKeyDown={(e) => {
-                            if (e.key === "Enter") {
-                              e.preventDefault();
-                              addQualification();
-                            }
-                          }}
-                        />
-                        <Button type="button" onClick={addQualification} size="icon" variant="outline">
-                          <Plus className="h-4 w-4" />
-                        </Button>
-                      </div>
-                      <FormMessage />
-                      <div className="mt-2 flex flex-wrap gap-2">
-                        {qualifications.map((q, i) => (
-                          <div
-                            key={`${q}-${i}`}
-                            className="flex items-center bg-secondary text-secondary-foreground px-3 py-1 rounded-full text-sm"
-                          >
-                            {q}
-                            <Button
-                              type="button"
-                              variant="ghost"
-                              size="icon"
-                              className="h-5 w-5 ml-1 p-0"
-                              onClick={() => removeQualification(i)}
-                            >
-                              <X className="h-3 w-3" />
-                            </Button>
-                          </div>
-                        ))}
-                      </div>
                     </FormItem>
                   )}
                 />

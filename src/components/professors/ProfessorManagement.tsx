@@ -785,10 +785,6 @@ const ProfessorManagement = () => {
                           <div className="text-sm">{p.username || "—"}</div>
                         </div>
                         <div>
-                          <div className="text-xs text-muted-foreground">Password</div>
-                          <div className="text-sm">{p.password ? "••••••••" : "—"}</div>
-                        </div>
-                        <div>
                           <div className="text-xs text-muted-foreground">Subjects Total</div>
                           <div className="text-sm">{subjectLoadCount(p)}</div>
                         </div>
