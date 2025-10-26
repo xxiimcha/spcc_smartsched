@@ -1,6 +1,6 @@
 // src/pages/ProfessorSubjects.tsx
 import React, { useEffect, useMemo, useRef, useState } from "react";
-import { BookOpen, Search, CheckCircle2, Loader2, Filter, X } from "lucide-react";
+import { BookOpen, Search, CheckCircle2, Loader2, Filter, X, Lock } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Card, CardHeader, CardContent, CardTitle } from "@/components/ui/card";
@@ -55,6 +55,9 @@ const ProfessorSubjects: React.FC = () => {
   // full baseline snapshot (for diff)
   const initialSnapshotRef = useRef<Map<number, Snap>>(new Map());
   const initialLoadedRef = useRef(false);
+
+  // subjects already assigned to this professor (lock against deselection)
+  const [lockedAssigned, setLockedAssigned] = useState<Set<number>>(new Set());
 
   // ui state
   const [loading, setLoading] = useState(true);
@@ -160,6 +163,36 @@ const ProfessorSubjects: React.FC = () => {
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [query, gradeLevel, strand, professorId]);
+
+  // fetch already-assigned subject IDs (lock them against deselect)
+  useEffect(() => {
+    let alive = true;
+
+    const loadAssigned = async () => {
+      if (!professorId) return;
+      try {
+        const hasHelper = typeof (apiService as any).getProfessorAssignedSubjects === "function";
+        if (hasHelper) {
+          const resp = await (apiService as any).getProfessorAssignedSubjects(professorId);
+          const ids: number[] = Array.isArray(resp?.data) ? resp.data.map((x: any) => Number(x)) : [];
+          if (alive) setLockedAssigned(new Set(ids));
+          return;
+        }
+        // Fallback to raw endpoint
+        const res = await fetch(`https://spcc-scheduler.site/professors.php?id=${professorId}`);
+        const json = await res.json();
+        const ids: number[] = Array.isArray(json?.data?.subjects)
+          ? json.data.subjects.map((s: any) => Number(s.subj_id))
+          : [];
+        if (alive) setLockedAssigned(new Set(ids));
+      } catch {
+        // ignore; if it fails, nothing is locked
+      }
+    };
+
+    loadAssigned();
+    return () => { alive = false; };
+  }, [professorId]);
 
   // local filter
   const displayed = useMemo(() => {
@@ -301,17 +334,27 @@ const ProfessorSubjects: React.FC = () => {
     });
   }, [updatedIds, currentSnapshot]);
 
-  // Only the newly added ones (kept for total count in dialog header)
-  const newSelectionSummary = useMemo(() => {
-    const base = initialSnapshotRef.current;
-    return selectionSummary.filter((row) => !base.has(row.id));
-  }, [selectionSummary]);
-
-  const handleToggle = (id: number) => {
+ const handleToggle = (id: number) => {
     setPrefs((prev) => {
-      const current = prev[id];
-      if (!current) return { ...prev, [id]: "beginner" }; // default
-      // deselect -> also clear willingness
+      const isSelected = !!prev[id];
+
+      // selecting: allow (default beginner)
+      if (!isSelected) {
+        return { ...prev, [id]: "beginner" };
+      }
+
+      // deselecting:
+      if (lockedAssigned.has(id)) {
+        // hard block + feedback
+        toast({
+          title: "Assigned subject",
+          description: "You can’t remove a subject that’s already assigned to you.",
+          variant: "destructive",
+        });
+        return prev;
+      }
+
+      // normal deselect (also clear willingness)
       const next = { ...prev };
       delete next[id];
       setWilling((w) => {
@@ -323,19 +366,24 @@ const ProfessorSubjects: React.FC = () => {
     });
   };
 
+  /** Update proficiency for a subject (keeps selection). */
   const handleLevelChange = (id: number, level: Proficiency) => {
     setPrefs((prev) => ({ ...prev, [id]: level }));
   };
 
+  /** Update willingness for a subject (keeps selection). */
   const handleWillingChange = (id: number, val: Willingness) => {
     setWilling((prev) => ({ ...prev, [id]: val }));
   };
 
+  /** Reset all filter controls. */
   const clearFilters = () => {
     setQuery("");
     setGradeLevel("all");
     setStrand("all");
   };
+
+  /* --------------------------------------------------- */
 
   // Open pre-save confirmation dialog
   const handleSave = () => {
@@ -548,6 +596,8 @@ const ProfessorSubjects: React.FC = () => {
                 const willingVal = willing[subj.id];
                 const isMissingWill = isSelected && !willingVal;
 
+                const isLocked = isSelected && lockedAssigned.has(subj.id);
+
                 return (
                   <Card
                     key={subj.id}
@@ -555,16 +605,34 @@ const ProfessorSubjects: React.FC = () => {
                       isSelected
                         ? (isMissingWill ? "border-red-500 ring-1 ring-red-300" : "border-blue-600 ring-1 ring-blue-300")
                         : ""
-                    }`}
+                    } ${isLocked ? "bg-muted/30" : ""}`}
                     onClick={(e) => {
                       if ((e.target as HTMLElement).closest("[data-stop]")) return;
+                      if (isLocked) {
+                        toast({
+                          title: "Assigned subject",
+                          description: "You can’t remove a subject that’s already assigned to you.",
+                          variant: "destructive",
+                        });
+                        return;
+                      }
                       handleToggle(subj.id);
                     }}
+
+                    title={isLocked ? "This subject is already assigned and cannot be deselected." : undefined}
                   >
                     <CardHeader>
-                      <CardTitle className="text-base flex items-center justify-between">
-                        <span>{subj.code}</span>
-                        {isSelected && <CheckCircle2 className="h-4 w-4 text-blue-600" />}
+                      <CardTitle className="text-base flex items-center justify-between gap-2">
+                        <span className="truncate">{subj.code}</span>
+                        <div className="flex items-center gap-2">
+                          {isLocked && (
+                            <span className="inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[11px] text-muted-foreground">
+                              <Lock className="h-3.5 w-3.5" />
+                              Assigned
+                            </span>
+                          )}
+                          {isSelected && <CheckCircle2 className="h-4 w-4 text-blue-600" />}
+                        </div>
                       </CardTitle>
                     </CardHeader>
                     <CardContent className="space-y-3">
@@ -667,7 +735,14 @@ const ProfessorSubjects: React.FC = () => {
                 {selectionSummary.map((row) => (
                   <div key={row.id} className="flex items-start justify-between gap-2 rounded-lg border p-2">
                     <div className="min-w-0">
-                      <div className="text-sm font-medium truncate">{row.code} — {row.name}</div>
+                      <div className="text-sm font-medium truncate">
+                        {row.code} — {row.name}
+                        {lockedAssigned.has(row.id) && (
+                          <span className="ml-2 inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[10px] text-muted-foreground align-middle">
+                            <Lock className="h-3 w-3" /> Assigned
+                          </span>
+                        )}
+                      </div>
                       <div className="mt-1 flex flex-wrap gap-1">
                         <ProficiencyBadge value={row.proficiency} />
                         <WillingBadge value={row.willingness} />
@@ -680,8 +755,22 @@ const ProfessorSubjects: React.FC = () => {
                       size="icon"
                       variant="ghost"
                       className="h-6 w-6 shrink-0"
-                      title="Remove from selection"
-                      onClick={() => handleToggle(row.id)}
+                      title={lockedAssigned.has(row.id) ? "Assigned — cannot remove" : "Remove from selection"}
+                      onClick={() => {
+                        if (lockedAssigned.has(row.id)) return; // block removal for assigned
+                        // proceed with toggle (deselect)
+                        setPrefs((prev) => {
+                          const next = { ...prev };
+                          delete next[row.id];
+                          setWilling((w) => {
+                            const copy = { ...w };
+                            delete copy[row.id];
+                            return copy;
+                          });
+                          return next;
+                        });
+                      }}
+                      disabled={lockedAssigned.has(row.id)}
                     >
                       <X className="h-4 w-4" />
                     </Button>
