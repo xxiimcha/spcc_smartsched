@@ -23,7 +23,7 @@
   import { apiService, SubjectDTO } from "@/services/apiService";
 
   type Proficiency = "beginner" | "intermediate" | "advanced";
-  type Willingness = "willing" | "maybe" | "not_willing";
+  type Willingness = "willing" | "not_willing";
 
   type PrefMap = Record<number, Proficiency | undefined>;
   type WillingMap = Record<number, Willingness | undefined>;
@@ -117,7 +117,7 @@
                   initial[Number(p.subj_id)] = lvl as Proficiency;
                 }
                 const w = p.willingness ? String(p.willingness).toLowerCase() : "";
-                if (["willing", "maybe", "not_willing"].includes(w)) {
+                if (["willing", "not_willing"].includes(w)) {
                   initialWilling[Number(p.subj_id)] = w as Willingness;
                 }
               });
@@ -510,7 +510,6 @@
                                 className="w-[var(--radix-select-trigger-width)] max-h-64 overflow-auto"
                               >
                                 <SelectItem value="willing">Willing</SelectItem>
-                                <SelectItem value="maybe">Maybe</SelectItem>
                                 <SelectItem value="not_willing">Not willing</SelectItem>
                               </SelectContent>
                             </Select>

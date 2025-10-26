@@ -11,7 +11,7 @@ import {
   ChevronsRight,
   FileSpreadsheet,
   FileText,
-  List as ListIcon, // NEW
+  List as ListIcon,
 } from "lucide-react";
 import { apiService } from "@/services/apiService";
 import {
@@ -43,7 +43,7 @@ type Subject = {
 
 interface Professor {
   id: string;             // prof_id
-  user_id?: string;       // NEW: we’ll store this for convenience
+  user_id?: string;
   name: string;
   email?: string;
   phone?: string;
@@ -58,7 +58,7 @@ interface Professor {
 type PrefItem = {
   subj_id: number;
   proficiency: "beginner" | "intermediate" | "advanced";
-  // optional details if we can fetch them:
+  willingness?: "willing" | "not_willing"; // only two options
   subj_name?: string;
   subj_code?: string;
   grade_level?: string | number;
@@ -89,7 +89,7 @@ const ProfessorManagement = () => {
   const [subjectPageById, setSubjectPageById] = useState<Record<string, number>>({});
   const [subjectPageSizeById, setSubjectPageSizeById] = useState<Record<string, number>>({});
 
-  // NEW: Assign modal state
+  // Assign modal state
   const [assignOpen, setAssignOpen] = useState(false);
   const [assignFor, setAssignFor] = useState<Professor | null>(null);
   const [prefLoading, setPrefLoading] = useState(false);
@@ -154,7 +154,7 @@ const ProfessorManagement = () => {
 
           return {
             id,
-            user_id: prof.user_id?.toString?.(), // NEW
+            user_id: prof.user_id?.toString?.(),
             name,
             email: prof.prof_email ?? prof.email,
             phone: prof.prof_phone ?? prof.phone,
@@ -166,8 +166,7 @@ const ProfessorManagement = () => {
         });
 
         setProfessors(mappedProfessors);
-        setSubjectsLoadedIds({});
-        setLoadingSubjectsIds({});
+        setSubjectsLoadedIds({}); setLoadingSubjectsIds({});
       } else {
         setProfessors([]);
         if (!response.success) throw new Error(response.message || "Failed to fetch professors");
@@ -292,7 +291,7 @@ const ProfessorManagement = () => {
     }
   };
 
-  // ----- Subjects fetchers (existing) -----
+  // ----- Subjects fetchers -----
   const fetchSubjectsFromProfessorsAPI = async (professorId: string): Promise<Subject[] | null> => {
     try {
       const res = await fetch(`https://spcc-scheduler.site/professors.php?id=${professorId}`);
@@ -430,22 +429,27 @@ const ProfessorManagement = () => {
     }
   };
 
-  // ---------- Preferred subjects (NEW) ----------
+  // ---------- Preferred subjects (with willingness) ----------
   const fetchPreferred = async (prof: Professor): Promise<PrefItem[]> => {
-    // The PHP we added accepts either prof_id or user_id; we’ll pass prof_id.
     const url = `https://spcc-scheduler.site/professor_subject_preferences.php?prof_id=${prof.id}`;
     const res = await fetch(url);
     const json = await res.json();
     if (json?.status !== "success" || !Array.isArray(json?.data)) return [];
-    // coerce into PrefItem
-    return json.data.map((r: any) => ({
-      subj_id: Number(r.subj_id),
-      proficiency: (String(r.proficiency || "").toLowerCase() as PrefItem["proficiency"]) || "beginner",
-    }));
+
+    return json.data.map((r: any) => {
+      const willRaw = (r.willingness ?? "").toString().toLowerCase();
+      const willingness = ["willing", "not_willing"].includes(willRaw)
+        ? (willRaw as PrefItem["willingness"])
+        : undefined;
+
+      return {
+        subj_id: Number(r.subj_id),
+        proficiency: (String(r.proficiency || "").toLowerCase() as PrefItem["proficiency"]) || "beginner",
+        willingness,
+      };
+    });
   };
 
-  // Try to get subject details by a vector of IDs. If this endpoint doesn’t exist yet,
-  // it will simply skip details and we’ll still show the IDs.
   const fetchSubjectDetailsByIds = async (ids: number[]) => {
     if (!ids.length) return {} as Record<number, Partial<PrefItem>>;
     try {
@@ -479,16 +483,13 @@ const ProfessorManagement = () => {
       const detailsMap = await fetchSubjectDetailsByIds(idList);
       const merged = base.map((b) => ({ ...b, ...(detailsMap[b.subj_id] || {}) }));
       setPrefList(merged);
-      // Pre-select what’s currently assigned intersect preferred
+      // Pre-select current assignments intersect preferred
       const assigned = new Set<number>((prof.subject_ids || []).map((v: any) => Number(v)));
       const picks: Record<number, boolean> = {};
-      merged.forEach((m) => {
-        picks[m.subj_id] = assigned.has(m.subj_id);
-      });
+      merged.forEach((m) => { picks[m.subj_id] = assigned.has(m.subj_id); });
       setAssignPick(picks);
     } catch (e) {
-      setPrefList([]);
-      setAssignPick({});
+      setPrefList([]); setAssignPick({});
       toast({
         variant: "destructive",
         title: "Failed to load preferred subjects",
@@ -499,10 +500,7 @@ const ProfessorManagement = () => {
     }
   };
 
-  const togglePick = (sid: number) => {
-    setAssignPick((m) => ({ ...m, [sid]: !m[sid] }));
-  };
-
+  const togglePick = (sid: number) => setAssignPick((m) => ({ ...m, [sid]: !m[sid] }));
   const setAllPick = (value: boolean) => {
     const next: Record<number, boolean> = {};
     prefList.forEach((p) => (next[p.subj_id] = value));
@@ -523,8 +521,7 @@ const ProfessorManagement = () => {
       });
       const json = await res.json();
       if (json?.status === "error") throw new Error(json?.message || "Failed to assign subjects");
-      setAssignOpen(false);
-      setAssignFor(null);
+      setAssignOpen(false); setAssignFor(null);
       await fetchProfessors();
       setSuccessMessage("Subjects assigned from preferred list.");
       setIsSuccessDialogOpen(true);
@@ -550,9 +547,7 @@ const ProfessorManagement = () => {
     [professors, searchQuery]
   );
 
-  useEffect(() => {
-    setCurrentPage(1);
-  }, [searchQuery, pageSize]);
+  useEffect(() => { setCurrentPage(1); }, [searchQuery, pageSize]);
 
   const totalItems = filteredProfessors.length;
   const totalPages = Math.max(1, Math.ceil(totalItems / pageSize));
@@ -616,6 +611,28 @@ const ProfessorManagement = () => {
     setSubjectPage(id, 1);
   };
 
+  // --- UI helpers for willingness indicator ---
+  const WillingPill: React.FC<{ value?: PrefItem["willingness"] }> = ({ value }) => {
+    if (!value) {
+      return (
+        <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full border text-xs text-muted-foreground">
+          <span className="h-2 w-2 rounded-full bg-gray-300" />
+          no choice
+        </span>
+      );
+    }
+    const cfg =
+      value === "willing"
+        ? { dot: "bg-emerald-500", pill: "bg-emerald-100 text-emerald-700 border-emerald-200", label: "Willing" }
+        : { dot: "bg-red-500", pill: "bg-red-100 text-red-700 border-red-200", label: "Not willing" };
+    return (
+      <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full border text-xs ${cfg.pill}`}>
+        <span className={`h-2 w-2 rounded-full ${cfg.dot}`} />
+        {cfg.label}
+      </span>
+    );
+  };
+
   if (loading) {
     return (
       <div className="w-full p-6 bg-white rounded-lg shadow-sm flex justify-center">
@@ -638,14 +655,8 @@ const ProfessorManagement = () => {
     );
   }
 
-  const openEdit = (p: Professor) => {
-    setSelectedProfessor(p);
-    setIsEditDialogOpen(true);
-  };
-  const openDelete = (p: Professor) => {
-    setSelectedProfessor(p);
-    setIsDeleteDialogOpen(true);
-  };
+  const openEdit = (p: Professor) => { setSelectedProfessor(p); setIsEditDialogOpen(true); };
+  const openDelete = (p: Professor) => { setSelectedProfessor(p); setIsDeleteDialogOpen(true); };
 
   return (
     <div className="w-full p-6 bg-white rounded-lg shadow-sm">
@@ -683,9 +694,7 @@ const ProfessorManagement = () => {
             onChange={(e) => setPageSize(Number(e.target.value))}
           >
             {PAGE_SIZES.map((n) => (
-              <option key={n} value={n}>
-                {n}
-              </option>
+              <option key={n} value={n}>{n}</option>
             ))}
           </select>
         </div>
@@ -719,8 +728,6 @@ const ProfessorManagement = () => {
                     </div>
                     <div className="col-span-6 md:col-span-6 flex items-center md:justify-end gap-2">
                       <span className={getWorkloadStatusClass(count)}>{getWorkloadStatusText(count)}</span>
-
-                      {/* NEW: Assign button */}
                       <Button
                         variant="outline"
                         size="sm"
@@ -789,9 +796,7 @@ const ProfessorManagement = () => {
                                 <SelectContent>
                                   <SelectItem value="ALL">All Grades</SelectItem>
                                   {uniqueGradesFor(p.subjects || []).map((g) => (
-                                    <SelectItem key={g} value={g}>
-                                      {g}
-                                    </SelectItem>
+                                    <SelectItem key={g} value={g}>{g}</SelectItem>
                                   ))}
                                 </SelectContent>
                               </Select>
@@ -803,9 +808,7 @@ const ProfessorManagement = () => {
                                 <SelectContent>
                                   <SelectItem value="ALL">All Strands</SelectItem>
                                   {uniqueStrandsFor(p.subjects || []).map((s) => (
-                                    <SelectItem key={s} value={s}>
-                                      {s}
-                                    </SelectItem>
+                                    <SelectItem key={s} value={s}>{s}</SelectItem>
                                   ))}
                                 </SelectContent>
                               </Select>
@@ -822,9 +825,7 @@ const ProfessorManagement = () => {
                                 }}
                               >
                                 {SUBJECT_PAGE_SIZES.map((n) => (
-                                  <option key={n} value={n}>
-                                    {n}
-                                  </option>
+                                  <option key={n} value={n}>{n}</option>
                                 ))}
                               </select>
                             </div>
@@ -937,7 +938,7 @@ const ProfessorManagement = () => {
         </div>
       </div>
 
-      {/* Add / Edit dialogs (unchanged) */}
+      {/* Add / Edit dialogs */}
       {isAddDialogOpen && (
         <ProfessorForm
           open={isAddDialogOpen}
@@ -978,7 +979,7 @@ const ProfessorManagement = () => {
         />
       )}
 
-      {/* Delete confirm (unchanged) */}
+      {/* Delete confirm */}
       {isDeleteDialogOpen && selectedProfessor && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
           <div className="bg-white rounded-md p-6 w-[420px] shadow-lg">
@@ -988,15 +989,8 @@ const ProfessorManagement = () => {
             </p>
             <p className="text-sm text-muted-foreground mt-2">This action cannot be undone.</p>
             <div className="flex justify-end gap-2 mt-4">
-              <Button variant="outline" onClick={() => setIsDeleteDialogOpen(false)}>
-                Cancel
-              </Button>
-              <Button
-                variant="destructive"
-                onClick={async () => {
-                  await deleteProfessor(selectedProfessor.id ?? "");
-                }}
-              >
+              <Button variant="outline" onClick={() => setIsDeleteDialogOpen(false)}>Cancel</Button>
+              <Button variant="destructive" onClick={async () => { await deleteProfessor(selectedProfessor.id ?? ""); }}>
                 Delete
               </Button>
             </div>
@@ -1004,7 +998,7 @@ const ProfessorManagement = () => {
         </div>
       )}
 
-      {/* NEW: Assign-from-preferred modal */}
+      {/* Assign-from-preferred modal */}
       {assignOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
           <div className="bg-white rounded-md p-6 w-full max-w-2xl shadow-lg">
@@ -1012,17 +1006,13 @@ const ProfessorManagement = () => {
               <div className="text-xl font-bold">
                 Assign Preferred Subjects{assignFor ? ` — ${assignFor.name}` : ""}
               </div>
-              <Button variant="ghost" onClick={() => { setAssignOpen(false); setAssignFor(null); }}>
-                Close
-              </Button>
+              <Button variant="ghost" onClick={() => { setAssignOpen(false); setAssignFor(null); }}>Close</Button>
             </div>
 
             {prefLoading ? (
               <div className="py-8 text-center text-muted-foreground">Loading preferred subjects…</div>
             ) : prefList.length === 0 ? (
-              <div className="py-8 text-center text-muted-foreground">
-                No preferred subjects saved for this professor.
-              </div>
+              <div className="py-8 text-center text-muted-foreground">No preferred subjects saved for this professor.</div>
             ) : (
               <>
                 <div className="flex items-center justify-between mb-3">
@@ -1045,6 +1035,7 @@ const ProfessorManagement = () => {
                         <TableHead>Subject Name</TableHead>
                         <TableHead className="w-[110px]">Grade</TableHead>
                         <TableHead className="w-[120px]">Strand</TableHead>
+                        <TableHead className="w-[150px]">Willingness</TableHead>
                       </TableRow>
                     </TableHeader>
                     <TableBody>
@@ -1063,6 +1054,7 @@ const ProfessorManagement = () => {
                           <TableCell>{p.subj_name ?? "—"}</TableCell>
                           <TableCell>{p.grade_level ? normalizeGrade(p.grade_level) : "—"}</TableCell>
                           <TableCell>{p.strand ? normalizeStrand(p.strand) : "—"}</TableCell>
+                          <TableCell><WillingPill value={p.willingness} /></TableCell>
                         </TableRow>
                       ))}
                     </TableBody>
@@ -1071,11 +1063,7 @@ const ProfessorManagement = () => {
 
                 <div className="flex items-center justify-between mt-4">
                   <div className="text-sm text-muted-foreground">
-                    Selected:{" "}
-                    <span className="font-medium">
-                      {Object.values(assignPick).filter(Boolean).length}
-                    </span>
-                    /{prefList.length}
+                    Selected: <span className="font-medium">{Object.values(assignPick).filter(Boolean).length}</span>/{prefList.length}
                   </div>
                   <div className="flex gap-2">
                     <Button variant="outline" onClick={() => { setAssignOpen(false); setAssignFor(null); }}>
