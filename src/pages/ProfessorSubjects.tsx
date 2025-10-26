@@ -404,33 +404,59 @@ const ProfessorSubjects: React.FC = () => {
 
   // Actual API save (runs after user confirms)
   const performSave = async () => {
-    const selections = Object.entries(prefs)
-      .filter(([, v]) => !!v)
-      .map(([k, v]) => {
-        const id = Number(k);
-        return {
-          subj_id: id,
-          proficiency: v as Proficiency,
-          willingness: willing[id]!, // assured by guard
-        };
-      });
+    // build from current chosen prefs
+    const selections: Array<{ subj_id: number; proficiency: Proficiency; willingness: Willingness }> =
+      Object.entries(prefs)
+        .filter(([, v]) => !!v)
+        .map(([k, v]) => {
+          const id = Number(k);
+          return {
+            subj_id: id,
+            proficiency: v as Proficiency,
+            willingness: (willing[id] ?? "willing") as Willingness, // fallback
+          };
+        });
 
-    if (!professorId || selections.length === 0) {
+    if (!professorId) {
+      toast({ title: "Missing professor", description: "Please re-login and try again.", variant: "destructive" });
+      return;
+    }
+
+    // ⛑ Ensure all locked/assigned subjects are INCLUDED even if user tried to remove them
+    const byId = new Map<number, { subj_id: number; proficiency: Proficiency; willingness: Willingness }>();
+    selections.forEach((s) => byId.set(s.subj_id, s));
+
+    const ensureForId = (id: number) => {
+      const snap = initialSnapshotRef.current.get(id);
+      const prof = (prefs[id] ?? snap?.prof ?? "beginner") as Proficiency;
+      const will = (willing[id] ?? snap?.will ?? "willing") as Willingness;
+      return { subj_id: id, proficiency: prof, willingness: will };
+    };
+
+    lockedAssigned.forEach((id) => {
+      if (!byId.has(id)) {
+        byId.set(id, ensureForId(id));
+      }
+    });
+
+    const finalSelections = Array.from(byId.values());
+
+    if (finalSelections.length === 0) {
       toast({ title: "Nothing to save", description: "Select at least one subject.", variant: "destructive" });
       return;
     }
 
     setSaving(true);
     try {
-      const res = await apiService.saveProfessorSubjectPreferences(professorId, selections);
+      const res = await apiService.saveProfessorSubjectPreferences(professorId, finalSelections);
       if (res.success) {
-        setSavedCount(selections.length);
+        setSavedCount(finalSelections.length);
         setSuccessOpen(true);
         toast({ title: "Preferences saved", description: "Your subject preferences have been updated." });
 
-        // refresh baseline snapshot to current
+        // refresh baseline snapshot
         const next = new Map<number, Snap>();
-        selections.forEach((s) => next.set(s.subj_id, { prof: s.proficiency, will: s.willingness }));
+        finalSelections.forEach((s) => next.set(s.subj_id, { prof: s.proficiency, will: s.willingness }));
         initialSnapshotRef.current = next;
       } else {
         toast({ title: "Save failed", description: res.message || "Please try again.", variant: "destructive" });
@@ -447,12 +473,25 @@ const ProfessorSubjects: React.FC = () => {
     if (!professorId) return;
     setClearing(true);
     try {
-      const hasClear =
-        typeof (apiService as any).clearProfessorSubjectPreferences === "function";
+      // Keep only locked subjects in local state
+      const keptPrefs: PrefMap = {};
+      const keptWilling: WillingMap = {};
 
-      const res = hasClear
-        ? await (apiService as any).clearProfessorSubjectPreferences(professorId)
-        : await apiService.saveProfessorSubjectPreferences(professorId, []);
+      // Prefer current choices, fall back to initial snapshot (or defaults)
+      lockedAssigned.forEach((id) => {
+        const snap = initialSnapshotRef.current.get(id);
+        keptPrefs[id] = (prefs[id] ?? snap?.prof ?? "beginner") as Proficiency;
+        keptWilling[id] = (willing[id] ?? snap?.will ?? "willing") as Willingness;
+      });
+
+      // Push exactly the kept (locked) set to backend
+      const payload = Array.from(lockedAssigned).map((id) => ({
+        subj_id: id,
+        proficiency: keptPrefs[id] as Proficiency,
+        willingness: keptWilling[id] as Willingness,
+      }));
+
+      const res = await apiService.saveProfessorSubjectPreferences(professorId, payload);
 
       const ok =
         res?.success === true ||
@@ -463,10 +502,23 @@ const ProfessorSubjects: React.FC = () => {
 
       if (!ok) throw new Error(res?.message || "Unable to clear preferences");
 
-      setPrefs({});
-      setWilling({});
-      initialSnapshotRef.current = new Map();
-      toast({ title: "Preferences cleared", description: "All saved subject preferences have been removed." });
+      setPrefs(keptPrefs);
+      setWilling(keptWilling);
+
+      // reset baseline snapshot to the kept locked set
+      const next = new Map<number, Snap>();
+      Array.from(lockedAssigned).forEach((id) => {
+        next.set(id, { prof: keptPrefs[id]!, will: keptWilling[id]! });
+      });
+      initialSnapshotRef.current = next;
+
+      toast({
+        title: "Preferences cleared",
+        description:
+          lockedAssigned.size > 0
+            ? "Cleared all except subjects already assigned to you."
+            : "All saved subject preferences have been removed.",
+      });
       setClearOpen(false);
     } catch (e: any) {
       toast({
@@ -478,6 +530,7 @@ const ProfessorSubjects: React.FC = () => {
       setClearing(false);
     }
   };
+
 
   const ProficiencyBadge = ({ value }: { value: Proficiency }) => (
     <Badge variant="secondary" className="capitalize">{value}</Badge>
@@ -618,7 +671,6 @@ const ProfessorSubjects: React.FC = () => {
                       }
                       handleToggle(subj.id);
                     }}
-
                     title={isLocked ? "This subject is already assigned and cannot be deselected." : undefined}
                   >
                     <CardHeader>
